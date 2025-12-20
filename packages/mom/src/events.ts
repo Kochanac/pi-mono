@@ -1,5 +1,5 @@
 import { Cron } from "croner";
-import { existsSync, type FSWatcher, mkdirSync, readdirSync, statSync, unlinkSync, watch } from "fs";
+import { existsSync, type FSWatcher, mkdirSync, readdirSync, renameSync, statSync, unlinkSync, watch } from "fs";
 import { readFile } from "fs/promises";
 import { join } from "path";
 import * as log from "./log.js";
@@ -198,7 +198,7 @@ export class EventsWatcher {
 
 		if (!event) {
 			log.logWarning(`Failed to parse event file after ${MAX_RETRIES} retries: ${filename}`, lastError?.message);
-			this.deleteFile(filename);
+			this.markProcessed(filename);
 			return;
 		}
 
@@ -263,7 +263,7 @@ export class EventsWatcher {
 			const stat = statSync(filePath);
 			if (stat.mtimeMs < this.startTime) {
 				log.logInfo(`Stale immediate event, deleting: ${filename}`);
-				this.deleteFile(filename);
+				this.markProcessed(filename);
 				return;
 			}
 		} catch {
@@ -282,7 +282,7 @@ export class EventsWatcher {
 		if (atTime <= now) {
 			// Past - delete without executing
 			log.logInfo(`One-shot event in the past, deleting: ${filename}`);
-			this.deleteFile(filename);
+			this.markProcessed(filename);
 			return;
 		}
 
@@ -311,7 +311,7 @@ export class EventsWatcher {
 			log.logInfo(`Scheduled periodic event: ${filename}, next run: ${next?.toISOString() ?? "unknown"}`);
 		} catch (err) {
 			log.logWarning(`Invalid cron schedule for ${filename}: ${event.schedule}`, String(err));
-			this.deleteFile(filename);
+			this.markProcessed(filename);
 		}
 	}
 
@@ -346,24 +346,36 @@ export class EventsWatcher {
 
 		if (enqueued && deleteAfter) {
 			// Delete file after successful enqueue (immediate and one-shot)
-			this.deleteFile(filename);
+			this.markProcessed(filename);
 		} else if (!enqueued) {
 			log.logWarning(`Event queue full, discarded: ${filename}`);
 			// Still delete immediate/one-shot even if discarded
 			if (deleteAfter) {
-				this.deleteFile(filename);
+				this.markProcessed(filename);
 			}
 		}
 	}
 
-	private deleteFile(filename: string): void {
+	/**
+	 * Mark an event file as processed by renaming to .done extension.
+	 * This prevents re-processing when R2/rclone syncs files with fresh mtime.
+	 * The watcher only processes .json files, so .done files are ignored.
+	 */
+	private markProcessed(filename: string): void {
 		const filePath = join(this.eventsDir, filename);
+		const donePath = filePath.replace(/\.json$/, ".done");
 		try {
-			unlinkSync(filePath);
+			renameSync(filePath, donePath);
+			log.logInfo(`Marked event processed: ${filename} -> ${filename.replace(/\.json$/, ".done")}`);
 		} catch (err) {
-			// ENOENT is fine (file already deleted), other errors are warnings
+			// ENOENT is fine (file already processed), other errors try delete as fallback
 			if (err instanceof Error && "code" in err && err.code !== "ENOENT") {
-				log.logWarning(`Failed to delete event file: ${filename}`, String(err));
+				log.logWarning(`Failed to rename event file, trying delete: ${filename}`, String(err));
+				try {
+					unlinkSync(filePath);
+				} catch {
+					// Ignore delete errors
+				}
 			}
 		}
 		this.knownFiles.delete(filename);
