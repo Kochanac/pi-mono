@@ -282,6 +282,16 @@ const handler: MomHandler = {
 			const result = await state.runner.run(ctx as any, state.store);
 			await ctx.setWorking(false);
 
+			// Signal completion to protocol adapter if present
+			const adapterUrl = process.env.MOM_SLACK_API_URL;
+			if (adapterUrl) {
+				fetch(`${adapterUrl}done`, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ channel: event.channel }),
+				}).catch(() => {});
+			}
+
 			if (result.stopReason === "aborted" && state.stopRequested) {
 				if (state.stopMessageTs) {
 					await slack.updateMessage(event.channel, state.stopMessageTs, "_Stopped_");
