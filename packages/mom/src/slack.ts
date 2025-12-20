@@ -15,6 +15,8 @@ export interface SlackEvent {
 	ts: string;
 	user: string;
 	text: string;
+	/** Thread timestamp - if set, response should be in this thread */
+	thread_ts?: string;
 	files?: Array<{ name?: string; url_private_download?: string; url_private?: string }>;
 	/** Processed attachments with local paths (populated after logUserMessage) */
 	attachments?: Attachment[];
@@ -56,6 +58,8 @@ export interface SlackContext {
 	channelName?: string;
 	channels: ChannelInfo[];
 	users: UserInfo[];
+	/** True if this message was sent in a thread (response will go to same thread) */
+	isInThread: boolean;
 	respond: (text: string, shouldLog?: boolean) => Promise<void>;
 	replaceMessage: (text: string) => Promise<void>;
 	respondInThread: (text: string) => Promise<void>;
@@ -209,15 +213,26 @@ export class SlackBot {
 		return result.ts as string;
 	}
 
-	async uploadFile(channel: string, filePath: string, title?: string): Promise<void> {
+	async uploadFile(channel: string, filePath: string, title?: string, threadTs?: string): Promise<void> {
 		const fileName = title || basename(filePath);
 		const fileContent = readFileSync(filePath);
-		await this.webClient.files.uploadV2({
-			channel_id: channel,
-			file: fileContent,
-			filename: fileName,
-			title: fileName,
-		});
+		if (threadTs) {
+			// When uploading to a thread, channels (not channel_id) is required
+			await this.webClient.files.uploadV2({
+				channels: channel,
+				file: fileContent,
+				filename: fileName,
+				title: fileName,
+				thread_ts: threadTs,
+			});
+		} else {
+			await this.webClient.files.uploadV2({
+				channel_id: channel,
+				file: fileContent,
+				filename: fileName,
+				title: fileName,
+			});
+		}
 	}
 
 	/**
@@ -284,6 +299,7 @@ export class SlackBot {
 				channel: string;
 				user: string;
 				ts: string;
+				thread_ts?: string;
 				files?: Array<{ name: string; url_private_download?: string; url_private?: string }>;
 			};
 
@@ -299,6 +315,7 @@ export class SlackBot {
 				ts: e.ts,
 				user: e.user,
 				text: e.text.replace(/<@[A-Z0-9]+>/gi, "").trim(),
+				thread_ts: e.thread_ts,
 				files: e.files,
 			};
 
@@ -343,6 +360,7 @@ export class SlackBot {
 				channel: string;
 				user?: string;
 				ts: string;
+				thread_ts?: string;
 				channel_type?: string;
 				subtype?: string;
 				bot_id?: string;
@@ -378,6 +396,7 @@ export class SlackBot {
 				ts: e.ts,
 				user: e.user,
 				text: (e.text || "").replace(/<@[A-Z0-9]+>/gi, "").trim(),
+				thread_ts: e.thread_ts,
 				files: e.files,
 			};
 

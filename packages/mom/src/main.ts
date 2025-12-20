@@ -138,6 +138,7 @@ function createSlackContext(event: SlackEvent, slack: SlackBot, state: ChannelSt
 			attachments: (event.attachments || []).map((a) => ({ local: a.local })),
 		},
 		channelName: slack.getChannel(event.channel)?.name,
+		isInThread: !!event.thread_ts,
 		store: state.store,
 		channels: slack.getAllChannels().map((c) => ({ id: c.id, name: c.name })),
 		users: slack.getAllUsers().map((u) => ({ id: u.id, userName: u.userName, displayName: u.displayName })),
@@ -149,6 +150,9 @@ function createSlackContext(event: SlackEvent, slack: SlackBot, state: ChannelSt
 
 				if (messageTs) {
 					await slack.updateMessage(event.channel, messageTs, displayText);
+				} else if (event.thread_ts) {
+					// Respond in the same thread as the triggering message
+					messageTs = await slack.postInThread(event.channel, event.thread_ts, displayText);
 				} else {
 					messageTs = await slack.postMessage(event.channel, displayText);
 				}
@@ -166,6 +170,8 @@ function createSlackContext(event: SlackEvent, slack: SlackBot, state: ChannelSt
 				const displayText = isWorking ? accumulatedText + workingIndicator : accumulatedText;
 				if (messageTs) {
 					await slack.updateMessage(event.channel, messageTs, displayText);
+				} else if (event.thread_ts) {
+					messageTs = await slack.postInThread(event.channel, event.thread_ts, displayText);
 				} else {
 					messageTs = await slack.postMessage(event.channel, displayText);
 				}
@@ -188,7 +194,15 @@ function createSlackContext(event: SlackEvent, slack: SlackBot, state: ChannelSt
 				updatePromise = updatePromise.then(async () => {
 					if (!messageTs) {
 						accumulatedText = eventFilename ? `_Starting event: ${eventFilename}_` : "_Thinking_";
-						messageTs = await slack.postMessage(event.channel, accumulatedText + workingIndicator);
+						if (event.thread_ts) {
+							messageTs = await slack.postInThread(
+								event.channel,
+								event.thread_ts,
+								accumulatedText + workingIndicator,
+							);
+						} else {
+							messageTs = await slack.postMessage(event.channel, accumulatedText + workingIndicator);
+						}
 					}
 				});
 				await updatePromise;
@@ -196,7 +210,7 @@ function createSlackContext(event: SlackEvent, slack: SlackBot, state: ChannelSt
 		},
 
 		uploadFile: async (filePath: string, title?: string) => {
-			await slack.uploadFile(event.channel, filePath, title);
+			await slack.uploadFile(event.channel, filePath, title, event.thread_ts);
 		},
 
 		setWorking: async (working: boolean) => {
@@ -286,10 +300,10 @@ const handler: MomHandler = {
 			const adapterUrl = process.env.MOM_SLACK_API_URL;
 			if (adapterUrl) {
 				// adapterUrl is like http://localhost:3000/api/ - get base URL
-				const baseUrl = adapterUrl.replace(/\/api\/?$/, '');
+				const baseUrl = adapterUrl.replace(/\/api\/?$/, "");
 				fetch(`${baseUrl}/done`, {
-					method: 'POST',
-					headers: { 'Content-Type': 'application/json' },
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
 					body: JSON.stringify({ channel: event.channel }),
 				}).catch(() => {});
 			}

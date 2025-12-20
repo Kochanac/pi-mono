@@ -571,13 +571,19 @@ function createRunner(sandboxConfig: SandboxConfig, channelId: string, channelDi
 				for (const thinking of thinkingParts) {
 					log.logThinking(logCtx, thinking);
 					queue.enqueueMessage(`_${thinking}_`, "main", "thinking main");
-					queue.enqueueMessage(`_${thinking}_`, "thread", "thinking thread", false);
+					// Skip thread copy if already in a thread (avoid duplicates)
+					if (!ctx.isInThread) {
+						queue.enqueueMessage(`_${thinking}_`, "thread", "thinking thread", false);
+					}
 				}
 
 				if (text.trim()) {
 					log.logResponse(logCtx, text);
 					queue.enqueueMessage(text, "main", "response main");
-					queue.enqueueMessage(text, "thread", "response thread", false);
+					// Skip thread copy if already in a thread (avoid duplicates)
+					if (!ctx.isInThread) {
+						queue.enqueueMessage(text, "thread", "response thread", false);
+					}
 				}
 			}
 		} else if (event.type === "auto_compaction_start") {

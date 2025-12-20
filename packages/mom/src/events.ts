@@ -13,6 +13,7 @@ export interface ImmediateEvent {
 	type: "immediate";
 	channelId: string;
 	text: string;
+	thread_ts?: string;
 }
 
 export interface OneShotEvent {
@@ -20,6 +21,7 @@ export interface OneShotEvent {
 	channelId: string;
 	text: string;
 	at: string; // ISO 8601 with timezone offset
+	thread_ts?: string;
 }
 
 export interface PeriodicEvent {
@@ -28,6 +30,7 @@ export interface PeriodicEvent {
 	text: string;
 	schedule: string; // cron syntax
 	timezone: string; // IANA timezone
+	thread_ts?: string;
 }
 
 export type MomEvent = ImmediateEvent | OneShotEvent | PeriodicEvent;
@@ -339,6 +342,7 @@ export class EventsWatcher {
 			user: "EVENT",
 			text: message,
 			ts: Date.now().toString(),
+			thread_ts: event.thread_ts,
 		};
 
 		// Enqueue for processing
