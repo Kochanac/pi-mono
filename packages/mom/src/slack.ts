@@ -143,9 +143,12 @@ export class SlackBot {
 		this.workingDir = config.workingDir;
 		this.store = config.store;
 		const slackApiUrl = process.env.MOM_SLACK_API_URL;
+		// Allow separate URL for Socket Mode (defaults to slackApiUrl if not set)
+		// Hybrid mode: socket connects to real Slack, API calls go through adapter
+		const slackSocketUrl = process.env.MOM_SLACK_SOCKET_URL || slackApiUrl;
 		this.socketClient = new SocketModeClient({
 			appToken: config.appToken,
-			clientOptions: slackApiUrl ? { slackApiUrl } : undefined,
+			clientOptions: slackSocketUrl ? { slackApiUrl: slackSocketUrl } : undefined,
 		});
 		this.webClient = new WebClient(config.botToken, slackApiUrl ? { slackApiUrl } : undefined);
 	}
