@@ -285,7 +285,9 @@ const handler: MomHandler = {
 			// Signal completion to protocol adapter if present
 			const adapterUrl = process.env.MOM_SLACK_API_URL;
 			if (adapterUrl) {
-				fetch(`${adapterUrl}done`, {
+				// adapterUrl is like http://localhost:3000/api/ - get base URL
+				const baseUrl = adapterUrl.replace(/\/api\/?$/, '');
+				fetch(`${baseUrl}/done`, {
 					method: 'POST',
 					headers: { 'Content-Type': 'application/json' },
 					body: JSON.stringify({ channel: event.channel }),
