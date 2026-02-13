@@ -208,14 +208,24 @@ When mentioning users, use @username format.`;
 
 	createContext(event: MomEvent, _store: ChannelStore, isEvent?: boolean): MomContext {
 		let messageId: string | null = null;
-		const threadMessageIds: string[] = [];
-		let accumulatedText = "";
+		let finalText = "";
+		let statusText = "";
 		let isWorking = true;
 		const workingIndicator = " ...";
 		let updatePromise = Promise.resolve();
 
 		const user = this.users.get(event.user);
 		const eventFilename = isEvent ? event.text.match(/^\[EVENT:([^:]+):/)?.[1] : undefined;
+
+		// Helper: update the single message with current status
+		const updateDisplay = async () => {
+			const display = isWorking ? statusText + workingIndicator : finalText || statusText;
+			if (messageId) {
+				await this.updateMessage(event.channel, messageId, display);
+			} else if (display) {
+				messageId = await this.postMessage(event.channel, display);
+			}
+		};
 
 		return {
 			message: {
@@ -233,16 +243,25 @@ When mentioning users, use @username format.`;
 
 			respond: async (text: string, shouldLog = true) => {
 				updatePromise = updatePromise.then(async () => {
-					accumulatedText = accumulatedText ? `${accumulatedText}\n${text}` : text;
-					const displayText = isWorking ? accumulatedText + workingIndicator : accumulatedText;
-
-					if (messageId) {
-						await this.updateMessage(event.channel, messageId, displayText);
-					} else {
-						messageId = await this.postMessage(event.channel, displayText);
+					// Tool labels (shouldLog=false, starts with _→) — show as status line
+					if (!shouldLog && text.startsWith("_→")) {
+						statusText = text;
+						await updateDisplay();
+						return;
 					}
 
-					if (shouldLog && messageId) {
+					// Status messages (shouldLog=false) — show as transient status
+					if (!shouldLog) {
+						statusText = text;
+						await updateDisplay();
+						return;
+					}
+
+					// Real content — accumulate
+					finalText = finalText ? `${finalText}\n${text}` : text;
+					statusText = finalText;
+					await updateDisplay();
+					if (messageId) {
 						this.logBotResponse(event.channel, text, messageId);
 					}
 				});
@@ -251,39 +270,31 @@ When mentioning users, use @username format.`;
 
 			replaceMessage: async (text: string) => {
 				updatePromise = updatePromise.then(async () => {
-					accumulatedText = text;
-					const displayText = isWorking ? accumulatedText + workingIndicator : accumulatedText;
-					if (messageId) {
-						await this.updateMessage(event.channel, messageId, displayText);
-					} else {
-						messageId = await this.postMessage(event.channel, displayText);
-					}
+					finalText = text;
+					statusText = text;
+					await updateDisplay();
 				});
 				await updatePromise;
 			},
 
-			respondInThread: async (text: string) => {
-				updatePromise = updatePromise.then(async () => {
-					if (messageId) {
-						const id = await this.postInThread(event.channel, messageId, text);
-						threadMessageIds.push(id);
-					}
-				});
-				await updatePromise;
+			// Telegram: swallow thread messages (tool details, duplicates, usage)
+			// All this info is still logged to log.jsonl via the agent
+			respondInThread: async (_text: string) => {
+				// No-op — Telegram has no collapsible threads, so posting
+				// tool args/results as replies would be noisy
 			},
 
 			setTyping: async (isTyping: boolean) => {
 				if (isTyping && !messageId) {
 					updatePromise = updatePromise.then(async () => {
 						if (!messageId) {
-							// Send typing action
 							try {
 								await this.bot.sendChatAction(Number(event.channel), "typing");
 							} catch {
 								// Ignore typing errors
 							}
-							accumulatedText = eventFilename ? `Starting event: ${eventFilename}` : "Thinking";
-							messageId = await this.postMessage(event.channel, accumulatedText + workingIndicator);
+							statusText = eventFilename ? `Starting event: ${eventFilename}` : "Thinking";
+							messageId = await this.postMessage(event.channel, statusText + workingIndicator);
 						}
 					});
 					await updatePromise;
@@ -297,24 +308,13 @@ When mentioning users, use @username format.`;
 			setWorking: async (working: boolean) => {
 				updatePromise = updatePromise.then(async () => {
 					isWorking = working;
-					if (messageId) {
-						const displayText = isWorking ? accumulatedText + workingIndicator : accumulatedText;
-						await this.updateMessage(event.channel, messageId, displayText);
-					}
+					await updateDisplay();
 				});
 				await updatePromise;
 			},
 
 			deleteMessage: async () => {
 				updatePromise = updatePromise.then(async () => {
-					for (let i = threadMessageIds.length - 1; i >= 0; i--) {
-						try {
-							await this.deleteMessage(event.channel, threadMessageIds[i]);
-						} catch {
-							// Ignore
-						}
-					}
-					threadMessageIds.length = 0;
 					if (messageId) {
 						await this.deleteMessage(event.channel, messageId);
 						messageId = null;
