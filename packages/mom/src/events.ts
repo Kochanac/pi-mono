@@ -2,8 +2,8 @@ import { Cron } from "croner";
 import { existsSync, type FSWatcher, mkdirSync, readdirSync, statSync, unlinkSync, watch } from "fs";
 import { readFile } from "fs/promises";
 import { join } from "path";
+import type { MomEvent as MomIncomingEvent, PlatformAdapter } from "./adapters/types.js";
 import * as log from "./log.js";
-import type { SlackBot, SlackEvent } from "./slack.js";
 
 // ============================================================================
 // Event Types
@@ -30,7 +30,7 @@ export interface PeriodicEvent {
 	timezone: string; // IANA timezone
 }
 
-export type MomEvent = ImmediateEvent | OneShotEvent | PeriodicEvent;
+export type ScheduledEvent = ImmediateEvent | OneShotEvent | PeriodicEvent;
 
 // ============================================================================
 // EventsWatcher
@@ -50,13 +50,13 @@ export class EventsWatcher {
 
 	constructor(
 		private eventsDir: string,
-		private slack: SlackBot,
+		private adapter: PlatformAdapter,
 	) {
 		this.startTime = Date.now();
 	}
 
 	/**
-	 * Start watching for events. Call this after SlackBot is ready.
+	 * Start watching for events. Call this after adapter is ready.
 	 */
 	start(): void {
 		// Ensure events directory exists
@@ -180,7 +180,7 @@ export class EventsWatcher {
 		const filePath = join(this.eventsDir, filename);
 
 		// Parse with retries
-		let event: MomEvent | null = null;
+		let event: ScheduledEvent | null = null;
 		let lastError: Error | null = null;
 
 		for (let i = 0; i < MAX_RETRIES; i++) {
@@ -218,7 +218,7 @@ export class EventsWatcher {
 		}
 	}
 
-	private parseEvent(content: string, filename: string): MomEvent | null {
+	private parseEvent(content: string, filename: string): ScheduledEvent | null {
 		const data = JSON.parse(content);
 
 		if (!data.type || !data.channelId || !data.text) {
@@ -315,7 +315,7 @@ export class EventsWatcher {
 		}
 	}
 
-	private execute(filename: string, event: MomEvent, deleteAfter: boolean = true): void {
+	private execute(filename: string, event: ScheduledEvent, deleteAfter: boolean = true): void {
 		// Format the message
 		let scheduleInfo: string;
 		switch (event.type) {
@@ -332,8 +332,8 @@ export class EventsWatcher {
 
 		const message = `[EVENT:${filename}:${event.type}:${scheduleInfo}] ${event.text}`;
 
-		// Create synthetic SlackEvent
-		const syntheticEvent: SlackEvent = {
+		// Create synthetic event
+		const syntheticEvent: MomIncomingEvent = {
 			type: "mention",
 			channel: event.channelId,
 			user: "EVENT",
@@ -342,7 +342,7 @@ export class EventsWatcher {
 		};
 
 		// Enqueue for processing
-		const enqueued = this.slack.enqueueEvent(syntheticEvent);
+		const enqueued = this.adapter.enqueueEvent(syntheticEvent);
 
 		if (enqueued && deleteAfter) {
 			// Delete file after successful enqueue (immediate and one-shot)
@@ -377,7 +377,7 @@ export class EventsWatcher {
 /**
  * Create and start an events watcher.
  */
-export function createEventsWatcher(workspaceDir: string, slack: SlackBot): EventsWatcher {
+export function createEventsWatcher(workspaceDir: string, adapter: PlatformAdapter): EventsWatcher {
 	const eventsDir = join(workspaceDir, "events");
-	return new EventsWatcher(eventsDir, slack);
+	return new EventsWatcher(eventsDir, adapter);
 }

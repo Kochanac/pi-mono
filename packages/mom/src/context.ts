@@ -36,13 +36,13 @@ interface LogMessage {
  *
  * @param sessionManager - The SessionManager to sync to
  * @param channelDir - Path to channel directory containing log.jsonl
- * @param excludeSlackTs - Slack timestamp of current message (will be added via prompt(), not sync)
+ * @param excludeTs - Timestamp of current message (will be added via prompt(), not sync)
  * @returns Number of messages synced
  */
 export function syncLogToSessionManager(
 	sessionManager: SessionManager,
 	channelDir: string,
-	excludeSlackTs?: string,
+	excludeTs?: string,
 ): number {
 	const logFile = join(channelDir, "log.jsonl");
 
@@ -61,7 +61,7 @@ export function syncLogToSessionManager(
 					// Format: [YYYY-MM-DD HH:MM:SS+HH:MM] [username]: text
 					let normalized = content.replace(/^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}\] /, "");
 					// Strip attachments section
-					const attachmentsIdx = normalized.indexOf("\n\n<slack_attachments>\n");
+					const attachmentsIdx = normalized.indexOf("\n\n<attachments>\n");
 					if (attachmentsIdx !== -1) {
 						normalized = normalized.substring(0, attachmentsIdx);
 					}
@@ -77,7 +77,7 @@ export function syncLogToSessionManager(
 						) {
 							let normalized = (part as { type: "text"; text: string }).text;
 							normalized = normalized.replace(/^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}\] /, "");
-							const attachmentsIdx = normalized.indexOf("\n\n<slack_attachments>\n");
+							const attachmentsIdx = normalized.indexOf("\n\n<attachments>\n");
 							if (attachmentsIdx !== -1) {
 								normalized = normalized.substring(0, attachmentsIdx);
 							}
@@ -99,12 +99,12 @@ export function syncLogToSessionManager(
 		try {
 			const logMsg: LogMessage = JSON.parse(line);
 
-			const slackTs = logMsg.ts;
+			const msgTs = logMsg.ts;
 			const date = logMsg.date;
-			if (!slackTs || !date) continue;
+			if (!msgTs || !date) continue;
 
 			// Skip the current message being processed (will be added via prompt())
-			if (excludeSlackTs && slackTs === excludeSlackTs) continue;
+			if (excludeTs && msgTs === excludeTs) continue;
 
 			// Skip bot messages - added through agent flow
 			if (logMsg.isBot) continue;
