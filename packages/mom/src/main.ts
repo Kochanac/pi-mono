@@ -19,7 +19,7 @@ interface ParsedArgs {
 	workingDir?: string;
 	sandbox: SandboxConfig;
 	downloadChannel?: string;
-	adapter: string;
+	adapters: string[];
 }
 
 function parseArgs(): ParsedArgs {
@@ -27,7 +27,7 @@ function parseArgs(): ParsedArgs {
 	let sandbox: SandboxConfig = { type: "host" };
 	let workingDir: string | undefined;
 	let downloadChannelId: string | undefined;
-	let adapter = "slack";
+	let adapterArg: string | undefined;
 
 	for (let i = 0; i < args.length; i++) {
 		const arg = args[i];
@@ -40,11 +40,29 @@ function parseArgs(): ParsedArgs {
 		} else if (arg === "--download") {
 			downloadChannelId = args[++i];
 		} else if (arg.startsWith("--adapter=")) {
-			adapter = arg.slice("--adapter=".length);
+			adapterArg = arg.slice("--adapter=".length);
 		} else if (arg === "--adapter") {
-			adapter = args[++i] || "slack";
+			adapterArg = args[++i] || undefined;
 		} else if (!arg.startsWith("-")) {
 			workingDir = arg;
+		}
+	}
+
+	// If --adapter specified, use it (comma-separated). Otherwise auto-detect from env vars.
+	let adapters: string[];
+	if (adapterArg) {
+		adapters = adapterArg.split(",").map((a) => a.trim());
+	} else {
+		adapters = [];
+		if (process.env.MOM_SLACK_APP_TOKEN && process.env.MOM_SLACK_BOT_TOKEN) {
+			adapters.push("slack");
+		}
+		if (process.env.MOM_TELEGRAM_BOT_TOKEN) {
+			adapters.push("telegram");
+		}
+		// Default to slack if nothing detected
+		if (adapters.length === 0) {
+			adapters.push("slack");
 		}
 	}
 
@@ -52,7 +70,7 @@ function parseArgs(): ParsedArgs {
 		workingDir: workingDir ? resolve(workingDir) : undefined,
 		sandbox,
 		downloadChannel: downloadChannelId,
-		adapter,
+		adapters,
 	};
 }
 
@@ -71,28 +89,26 @@ if (parsedArgs.downloadChannel) {
 
 // Normal bot mode - require working dir
 if (!parsedArgs.workingDir) {
-	console.error("Usage: mom [--sandbox=host|docker:<name>] [--adapter=slack|telegram] <working-directory>");
+	console.error("Usage: mom [--sandbox=host|docker:<name>] [--adapter=slack,telegram] <working-directory>");
 	console.error("       mom --download <channel-id>");
+	console.error("       (omit --adapter to auto-detect from env vars)");
 	process.exit(1);
 }
 
-const {
-	workingDir,
-	sandbox,
-	adapter: adapterName,
-} = {
+const { workingDir, sandbox } = {
 	workingDir: parsedArgs.workingDir,
 	sandbox: parsedArgs.sandbox,
-	adapter: parsedArgs.adapter,
 };
 
 await validateSandbox(sandbox);
 
 // ============================================================================
-// Create platform adapter
+// Create platform adapters
 // ============================================================================
 
-function createAdapter(name: string): PlatformAdapter & { setHandler(h: MomHandler): void } {
+type AdapterWithHandler = PlatformAdapter & { setHandler(h: MomHandler): void };
+
+function createAdapter(name: string): AdapterWithHandler {
 	switch (name) {
 		case "slack": {
 			const appToken = process.env.MOM_SLACK_APP_TOKEN;
@@ -118,7 +134,7 @@ function createAdapter(name: string): PlatformAdapter & { setHandler(h: MomHandl
 	}
 }
 
-const adapter = createAdapter(adapterName);
+const adapters: AdapterWithHandler[] = parsedArgs.adapters.map(createAdapter);
 
 // ============================================================================
 // State (per channel)
@@ -134,13 +150,13 @@ interface ChannelState {
 
 const channelStates = new Map<string, ChannelState>();
 
-function getState(channelId: string): ChannelState {
+function getState(channelId: string, formatInstructions: string): ChannelState {
 	let state = channelStates.get(channelId);
 	if (!state) {
 		const channelDir = join(workingDir, channelId);
 		state = {
 			running: false,
-			runner: getOrCreateRunner(sandbox, channelId, channelDir, adapter.formatInstructions),
+			runner: getOrCreateRunner(sandbox, channelId, channelDir, formatInstructions),
 			store: new ChannelStore({ workingDir, botToken: process.env.MOM_SLACK_BOT_TOKEN || "" }),
 			stopRequested: false,
 		};
@@ -150,7 +166,7 @@ function getState(channelId: string): ChannelState {
 }
 
 // ============================================================================
-// Handler
+// Handler (shared across all adapters)
 // ============================================================================
 
 const handler: MomHandler = {
@@ -172,13 +188,13 @@ const handler: MomHandler = {
 	},
 
 	async handleEvent(event: MomEvent, platform: PlatformAdapter, isEvent?: boolean): Promise<void> {
-		const state = getState(event.channel);
+		const state = getState(event.channel, platform.formatInstructions);
 
 		// Start run
 		state.running = true;
 		state.stopRequested = false;
 
-		log.logInfo(`[${event.channel}] Starting run: ${event.text.substring(0, 50)}`);
+		log.logInfo(`[${platform.name}:${event.channel}] Starting run: ${event.text.substring(0, 50)}`);
 
 		try {
 			// Create context from adapter
@@ -199,7 +215,10 @@ const handler: MomHandler = {
 				}
 			}
 		} catch (err) {
-			log.logWarning(`[${event.channel}] Run error`, err instanceof Error ? err.message : String(err));
+			log.logWarning(
+				`[${platform.name}:${event.channel}] Run error`,
+				err instanceof Error ? err.message : String(err),
+			);
 		} finally {
 			state.running = false;
 		}
@@ -211,27 +230,36 @@ const handler: MomHandler = {
 // ============================================================================
 
 log.logStartup(workingDir, sandbox.type === "host" ? "host" : `docker:${sandbox.container}`);
-log.logInfo(`Adapter: ${adapterName}`);
+log.logInfo(`Adapters: ${parsedArgs.adapters.join(", ")}`);
 
-adapter.setHandler(handler);
+for (const adapter of adapters) {
+	adapter.setHandler(handler);
+}
 
-// Start events watcher
-const eventsWatcher = createEventsWatcher(workingDir, adapter);
+// Start events watcher (routes to all adapters)
+const eventsWatcher = createEventsWatcher(workingDir, adapters);
 eventsWatcher.start();
 
 // Handle shutdown
 process.on("SIGINT", () => {
 	log.logInfo("Shutting down...");
 	eventsWatcher.stop();
-	adapter.stop();
+	for (const adapter of adapters) {
+		adapter.stop();
+	}
 	process.exit(0);
 });
 
 process.on("SIGTERM", () => {
 	log.logInfo("Shutting down...");
 	eventsWatcher.stop();
-	adapter.stop();
+	for (const adapter of adapters) {
+		adapter.stop();
+	}
 	process.exit(0);
 });
 
-adapter.start();
+// Start all adapters
+for (const adapter of adapters) {
+	adapter.start();
+}

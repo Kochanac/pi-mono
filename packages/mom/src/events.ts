@@ -50,7 +50,7 @@ export class EventsWatcher {
 
 	constructor(
 		private eventsDir: string,
-		private adapter: PlatformAdapter,
+		private adapters: PlatformAdapter[],
 	) {
 		this.startTime = Date.now();
 	}
@@ -341,8 +341,14 @@ export class EventsWatcher {
 			ts: Date.now().toString(),
 		};
 
-		// Enqueue for processing
-		const enqueued = this.adapter.enqueueEvent(syntheticEvent);
+		// Enqueue for processing — try each adapter until one accepts
+		let enqueued = false;
+		for (const adapter of this.adapters) {
+			if (adapter.enqueueEvent(syntheticEvent)) {
+				enqueued = true;
+				break;
+			}
+		}
 
 		if (enqueued && deleteAfter) {
 			// Delete file after successful enqueue (immediate and one-shot)
@@ -377,7 +383,7 @@ export class EventsWatcher {
 /**
  * Create and start an events watcher.
  */
-export function createEventsWatcher(workspaceDir: string, adapter: PlatformAdapter): EventsWatcher {
+export function createEventsWatcher(workspaceDir: string, adapters: PlatformAdapter[]): EventsWatcher {
 	const eventsDir = join(workspaceDir, "events");
-	return new EventsWatcher(eventsDir, adapter);
+	return new EventsWatcher(eventsDir, adapters);
 }
