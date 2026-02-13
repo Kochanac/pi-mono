@@ -9,6 +9,11 @@ import type { ChannelInfo, MomContext, MomEvent, MomHandler, PlatformAdapter, Us
 // TelegramAdapter
 // ============================================================================
 
+/** Escape text for Telegram HTML parse mode */
+function escapeHtml(text: string): string {
+	return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
 export interface TelegramAdapterConfig {
 	botToken: string;
 	workingDir: string;
@@ -17,9 +22,10 @@ export interface TelegramAdapterConfig {
 export class TelegramAdapter implements PlatformAdapter {
 	readonly name = "telegram";
 	readonly maxMessageLength = 4096;
-	readonly formatInstructions = `## Text Formatting (Telegram MarkdownV2)
-Bold: *text*, Italic: _text_, Code: \`code\`, Block: \`\`\`code\`\`\`, Links: [text](url)
-Escape special chars (. - ! ( ) etc.) with backslash in MarkdownV2.
+	readonly formatInstructions = `## Text Formatting (Telegram HTML)
+Bold: <b>text</b>, Italic: <i>text</i>, Code: <code>code</code>, Block: <pre>code</pre>, Links: <a href="url">text</a>
+Strikethrough: <s>text</s>, Underline: <u>text</u>
+Do NOT use markdown formatting (* _ \` etc.) — use HTML tags only.
 
 When mentioning users, use @username format.`;
 
@@ -115,7 +121,7 @@ When mentioning users, use @username format.`;
 	}
 
 	async postMessage(channel: string, text: string): Promise<string> {
-		const result = await this.bot.sendMessage(Number(channel), text, { parse_mode: undefined });
+		const result = await this.bot.sendMessage(Number(channel), text, { parse_mode: "HTML" });
 		return String(result.message_id);
 	}
 
@@ -124,7 +130,7 @@ When mentioning users, use @username format.`;
 			await this.bot.editMessageText(text, {
 				chat_id: Number(channel),
 				message_id: Number(ts),
-				parse_mode: undefined,
+				parse_mode: "HTML",
 			});
 		} catch (err) {
 			// Telegram throws if message content hasn't changed
@@ -147,7 +153,7 @@ When mentioning users, use @username format.`;
 		// Telegram doesn't have threads in the same way — just post as reply
 		const result = await this.bot.sendMessage(Number(channel), text, {
 			reply_to_message_id: Number(_threadTs),
-			parse_mode: undefined,
+			parse_mode: "HTML",
 		});
 		return String(result.message_id);
 	}
@@ -209,17 +215,40 @@ When mentioning users, use @username format.`;
 	createContext(event: MomEvent, _store: ChannelStore, isEvent?: boolean): MomContext {
 		let messageId: string | null = null;
 		let finalText = "";
-		let statusText = "";
 		let isWorking = true;
-		const workingIndicator = " ...";
 		let updatePromise = Promise.resolve();
+
+		// Rolling tool call display: show last 3, count completed
+		const recentTools: string[] = []; // last 3 tool labels
+		let completedToolCount = 0;
 
 		const user = this.users.get(event.user);
 		const eventFilename = isEvent ? event.text.match(/^\[EVENT:([^:]+):/)?.[1] : undefined;
 
-		// Helper: update the single message with current status
+		// Build the working status display
+		const buildStatusDisplay = (): string => {
+			const lines: string[] = [];
+
+			// Header: completed tool count
+			if (completedToolCount > 0) {
+				lines.push(`<i>${completedToolCount} tool call${completedToolCount > 1 ? "s" : ""} completed</i>`);
+			}
+
+			// Show recent tools (last 3)
+			for (const tool of recentTools) {
+				lines.push(tool);
+			}
+
+			if (lines.length === 0) {
+				return eventFilename ? `<i>Starting event: ${escapeHtml(eventFilename)}</i>` : "<i>Thinking</i>";
+			}
+
+			return lines.join("\n");
+		};
+
+		// Update the single message
 		const updateDisplay = async () => {
-			const display = isWorking ? statusText + workingIndicator : finalText || statusText;
+			const display = isWorking ? buildStatusDisplay() + " ..." : finalText || buildStatusDisplay();
 			if (messageId) {
 				await this.updateMessage(event.channel, messageId, display);
 			} else if (display) {
@@ -243,23 +272,28 @@ When mentioning users, use @username format.`;
 
 			respond: async (text: string, shouldLog = true) => {
 				updatePromise = updatePromise.then(async () => {
-					// Tool labels (shouldLog=false, starts with _→) — show as status line
+					// Tool labels (shouldLog=false, starts with _→) — track in rolling window
 					if (!shouldLog && text.startsWith("_→")) {
-						statusText = text;
+						// Extract label: "_→ Reading file_" → "→ Reading file"
+						const label = text.replace(/^_/, "").replace(/_$/, "");
+						// Push old tools out, keep last 3
+						if (recentTools.length >= 3) {
+							recentTools.shift();
+							completedToolCount++;
+						}
+						recentTools.push(`<i>${escapeHtml(label)}</i>`);
 						await updateDisplay();
 						return;
 					}
 
-					// Status messages (shouldLog=false) — show as transient status
+					// Status messages (shouldLog=false) — transient
 					if (!shouldLog) {
-						statusText = text;
 						await updateDisplay();
 						return;
 					}
 
 					// Real content — accumulate
 					finalText = finalText ? `${finalText}\n${text}` : text;
-					statusText = finalText;
 					await updateDisplay();
 					if (messageId) {
 						this.logBotResponse(event.channel, text, messageId);
@@ -271,17 +305,14 @@ When mentioning users, use @username format.`;
 			replaceMessage: async (text: string) => {
 				updatePromise = updatePromise.then(async () => {
 					finalText = text;
-					statusText = text;
 					await updateDisplay();
 				});
 				await updatePromise;
 			},
 
 			// Telegram: swallow thread messages (tool details, duplicates, usage)
-			// All this info is still logged to log.jsonl via the agent
 			respondInThread: async (_text: string) => {
-				// No-op — Telegram has no collapsible threads, so posting
-				// tool args/results as replies would be noisy
+				// No-op — tool details logged to log.jsonl, not posted to chat
 			},
 
 			setTyping: async (isTyping: boolean) => {
@@ -293,8 +324,7 @@ When mentioning users, use @username format.`;
 							} catch {
 								// Ignore typing errors
 							}
-							statusText = eventFilename ? `Starting event: ${eventFilename}` : "Thinking";
-							messageId = await this.postMessage(event.channel, statusText + workingIndicator);
+							messageId = await this.postMessage(event.channel, buildStatusDisplay() + " ...");
 						}
 					});
 					await updatePromise;
@@ -308,6 +338,11 @@ When mentioning users, use @username format.`;
 			setWorking: async (working: boolean) => {
 				updatePromise = updatePromise.then(async () => {
 					isWorking = working;
+					// When done working, count any remaining visible tools as completed
+					if (!working) {
+						completedToolCount += recentTools.length;
+						recentTools.length = 0;
+					}
 					await updateDisplay();
 				});
 				await updatePromise;
