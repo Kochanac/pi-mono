@@ -24,7 +24,7 @@ import type { ChannelStore } from "./store.js";
 import { createMomTools, setUploadFunction } from "./tools/index.js";
 
 // Hardcoded model for now - TODO: make configurable (issue #63)
-const model = getModel("anthropic", "claude-sonnet-4-5");
+const model = getModel("openrouter", "qwen/qwen3-coder-next");
 
 export interface PendingMessage {
 	userName: string;
@@ -43,7 +43,7 @@ export interface AgentRunner {
 }
 
 async function getAnthropicApiKey(authStorage: AuthStorage): Promise<string> {
-	const key = await authStorage.getApiKey("anthropic");
+	const key = await authStorage.getApiKey("openrouter");
 	if (!key) {
 		throw new Error(
 			"No API key found for anthropic.\n\n" +
@@ -102,6 +102,24 @@ function getMemory(channelDir: string): string {
 	return parts.join("\n\n");
 }
 
+function getSoul(workspacePath: string): string {
+	// Read workspace-level memory (shared across all channels)
+	const workspaceMemoryPath = join(workspacePath, "SOUL.md");
+	if (existsSync(workspaceMemoryPath)) {
+		try {
+			const content = readFileSync(workspaceMemoryPath, "utf-8").trim();
+			if (content) {
+				return content;
+			}
+		} catch (error) {
+			log.logWarning("Failed to read SOUL.md", `${workspaceMemoryPath}: ${error}`);
+		}
+	}
+
+	log.logWarning("Failed to read SOUL.md");
+	return "NO SOUL";
+}
+
 function loadMomSkills(channelDir: string, workspacePath: string): Skill[] {
 	const skillMap = new Map<string, Skill>();
 
@@ -141,6 +159,7 @@ function loadMomSkills(channelDir: string, workspacePath: string): Skill[] {
 function buildSystemPrompt(
 	workspacePath: string,
 	channelId: string,
+	soul: string,
 	memory: string,
 	sandboxConfig: SandboxConfig,
 	channels: ChannelInfo[],
@@ -168,7 +187,8 @@ function buildSystemPrompt(
 - Bash working directory: ${process.cwd()}
 - Be careful with system modifications`;
 
-	return `You are mom, a chat bot assistant. Be concise. No emojis.
+	return `## SOUL.md - Who You Are
+${soul}
 
 ## Context
 - For current date/time, use: date
@@ -188,6 +208,7 @@ ${envDescription}
 
 ## Workspace Layout
 ${workspacePath}/
+├── SOUL.md                      # Your identify. Who you are. You are free to edit it as you wish
 ├── MEMORY.md                    # Global memory (all channels)
 ├── skills/                      # Global CLI tools you create
 └── ${channelId}/                # This channel
@@ -425,10 +446,12 @@ function createRunner(
 
 	// Initial system prompt (will be updated each run with fresh memory/channels/users/skills)
 	const memory = getMemory(channelDir);
+	const soul = getSoul(workspacePath);
 	const skills = loadMomSkills(channelDir, workspacePath);
 	const systemPrompt = buildSystemPrompt(
 		workspacePath,
 		channelId,
+		soul,
 		memory,
 		sandboxConfig,
 		[],
@@ -680,11 +703,13 @@ function createRunner(
 			}
 
 			// Update system prompt with fresh memory, channel/user info, and skills
+			const soul = getSoul(workspacePath);
 			const memory = getMemory(channelDir);
 			const skills = loadMomSkills(channelDir, workspacePath);
 			const systemPrompt = buildSystemPrompt(
 				workspacePath,
 				channelId,
+				soul,
 				memory,
 				sandboxConfig,
 				ctx.channels,

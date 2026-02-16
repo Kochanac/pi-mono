@@ -248,7 +248,7 @@ When mentioning users, use @username format.`;
 
 		// Update the single message
 		const updateDisplay = async () => {
-			const display = isWorking ? buildStatusDisplay() + " ..." : finalText || buildStatusDisplay();
+			const display = isWorking ? `${buildStatusDisplay()} ...` : finalText || buildStatusDisplay();
 			if (messageId) {
 				await this.updateMessage(event.channel, messageId, display);
 			} else if (display) {
@@ -324,7 +324,7 @@ When mentioning users, use @username format.`;
 							} catch {
 								// Ignore typing errors
 							}
-							messageId = await this.postMessage(event.channel, buildStatusDisplay() + " ...");
+							messageId = await this.postMessage(event.channel, `${buildStatusDisplay()} ...`);
 						}
 					});
 					await updatePromise;
