@@ -14,6 +14,26 @@ function escapeHtml(text: string): string {
 	return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+/** Split text into chunks that fit within maxLen, breaking at newlines then spaces. */
+function splitMessage(text: string, maxLen: number): string[] {
+	if (text.length <= maxLen) return [text];
+
+	const parts: string[] = [];
+	let remaining = text;
+
+	while (remaining.length > maxLen) {
+		let splitIdx = remaining.lastIndexOf("\n", maxLen);
+		if (splitIdx <= 0) splitIdx = remaining.lastIndexOf(" ", maxLen);
+		if (splitIdx <= 0) splitIdx = maxLen;
+
+		parts.push(remaining.slice(0, splitIdx));
+		remaining = remaining.slice(splitIdx).replace(/^\n/, "");
+	}
+
+	if (remaining.length > 0) parts.push(remaining);
+	return parts;
+}
+
 export interface TelegramAdapterConfig {
 	botToken: string;
 	workingDir: string;
@@ -122,8 +142,13 @@ When mentioning users, use @username format.`;
 	}
 
 	async postMessage(channel: string, text: string): Promise<string> {
-		const result = await this.bot.sendMessage(Number(channel), text, { parse_mode: "Markdown" });
-		return String(result.message_id);
+		const parts = splitMessage(text, this.maxMessageLength);
+		let lastId = "";
+		for (const part of parts) {
+			const result = await this.bot.sendMessage(Number(channel), part, { parse_mode: "Markdown" });
+			lastId = String(result.message_id);
+		}
+		return lastId;
 	}
 
 	async updateMessage(channel: string, ts: string, text: string): Promise<void> {
