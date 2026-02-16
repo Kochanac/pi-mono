@@ -42,11 +42,11 @@ export interface TelegramAdapterConfig {
 export class TelegramAdapter implements PlatformAdapter {
 	readonly name = "telegram";
 	readonly maxMessageLength = 4096;
-	readonly formatInstructions = `## Text Formatting (Telegram Markdown)
-Bold: **text**, Italic: __text__, Code: \`code\`, Block: \`\`\`code\`\`\`, Links: [text](url)
-Strikethrough: ~~text~~
+	readonly formatInstructions = `## Text Formatting (Telegram HTML)
+Bold: <b>text</b>, Italic: <i>text</i>, Code: <code>code</code>, Block: <pre>code</pre>, Links: <a href="url">text</a>
+Strikethrough: <s>text</s>, Underline: <u>text</u>
 Do NOT use markdown formatting (* _ \` etc.) — use HTML tags only.
-If you want to send a * or _ directly, you NEED to escape it like this: * _
+Characters &, < and > must be escaped as &amp; &lt; &gt; when not part of tags.
 
 When mentioning users, use @username format.`;
 
@@ -121,14 +121,14 @@ When mentioning users, use @username format.`;
 				if (this.handler.isRunning(chatId)) {
 					this.handler.handleStop(chatId, this);
 				} else {
-					this.postMessage(chatId, "__Nothing running__");
+					this.postMessage(chatId, "<i>Nothing running</i>");
 				}
 				return;
 			}
 
 			// Check if busy
 			if (this.handler.isRunning(chatId)) {
-				this.postMessage(chatId, "__Already working. Say `stop` to cancel.__");
+				this.postMessage(chatId, "<i>Already working. Say </i><code>stop</code><i> to cancel.</i>");
 			} else {
 				this.enqueueWork(chatId, () => this.handler.handleEvent(momEvent, this));
 			}
@@ -145,8 +145,13 @@ When mentioning users, use @username format.`;
 		const parts = splitMessage(text, this.maxMessageLength);
 		let lastId = "";
 		for (const part of parts) {
-			const result = await this.bot.sendMessage(Number(channel), part, { parse_mode: "Markdown" });
-			lastId = String(result.message_id);
+			try {
+				const result = await this.bot.sendMessage(Number(channel), part, { parse_mode: "HTML" });
+				lastId = String(result.message_id);
+			} catch {
+				const result = await this.bot.sendMessage(Number(channel), part);
+				lastId = String(result.message_id);
+			}
 		}
 		return lastId;
 	}
@@ -156,13 +161,21 @@ When mentioning users, use @username format.`;
 			await this.bot.editMessageText(text, {
 				chat_id: Number(channel),
 				message_id: Number(ts),
-				parse_mode: "Markdown",
+				parse_mode: "HTML",
 			});
 		} catch (err) {
-			// Telegram throws if message content hasn't changed
 			const errMsg = err instanceof Error ? err.message : String(err);
-			if (!errMsg.includes("message is not modified")) {
-				throw err;
+			if (errMsg.includes("message is not modified")) return;
+			try {
+				await this.bot.editMessageText(text, {
+					chat_id: Number(channel),
+					message_id: Number(ts),
+				});
+			} catch (plainErr) {
+				const plainErrMsg = plainErr instanceof Error ? plainErr.message : String(plainErr);
+				if (!plainErrMsg.includes("message is not modified")) {
+					throw plainErr;
+				}
 			}
 		}
 	}
@@ -177,11 +190,18 @@ When mentioning users, use @username format.`;
 
 	async postInThread(channel: string, _threadTs: string, text: string): Promise<string> {
 		// Telegram doesn't have threads in the same way — just post as reply
-		const result = await this.bot.sendMessage(Number(channel), text, {
-			reply_to_message_id: Number(_threadTs),
-			parse_mode: "Markdown",
-		});
-		return String(result.message_id);
+		try {
+			const result = await this.bot.sendMessage(Number(channel), text, {
+				reply_to_message_id: Number(_threadTs),
+				parse_mode: "HTML",
+			});
+			return String(result.message_id);
+		} catch {
+			const result = await this.bot.sendMessage(Number(channel), text, {
+				reply_to_message_id: Number(_threadTs),
+			});
+			return String(result.message_id);
+		}
 	}
 
 	async uploadFile(channel: string, filePath: string, title?: string): Promise<void> {
@@ -257,7 +277,7 @@ When mentioning users, use @username format.`;
 
 			// Header: completed tool count
 			if (completedToolCount > 0) {
-				lines.push(`__${completedToolCount} tool call${completedToolCount > 1 ? "s" : ""} completed__`);
+				lines.push(`<i>${completedToolCount} tool call${completedToolCount > 1 ? "s" : ""} completed</i>`);
 			}
 
 			// Show recent tools (last 3)
@@ -266,7 +286,7 @@ When mentioning users, use @username format.`;
 			}
 
 			if (lines.length === 0) {
-				return eventFilename ? `__Starting event: ${escapeHtml(eventFilename)}__` : "__Thinking__";
+				return eventFilename ? `<i>Starting event: ${escapeHtml(eventFilename)}</i>` : "<i>Thinking</i>";
 			}
 
 			return lines.join("\n");
@@ -318,7 +338,7 @@ When mentioning users, use @username format.`;
 							recentTools.shift();
 							completedToolCount++;
 						}
-						recentTools.push(`__${escapeHtml(label)}__`);
+						recentTools.push(`<i>${escapeHtml(label)}</i>`);
 						await updateDisplay();
 						return;
 					}
