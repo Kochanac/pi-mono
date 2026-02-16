@@ -121,14 +121,14 @@ When mentioning users, use @username format.`;
 				if (this.handler.isRunning(chatId)) {
 					this.handler.handleStop(chatId, this);
 				} else {
-					this.postMessage(chatId, "_Nothing running_");
+					this.postMessage(chatId, "__Nothing running__");
 				}
 				return;
 			}
 
 			// Check if busy
 			if (this.handler.isRunning(chatId)) {
-				this.postMessage(chatId, "_Already working. Say `stop` to cancel._");
+				this.postMessage(chatId, "__Already working. Say `stop` to cancel.__");
 			} else {
 				this.enqueueWork(chatId, () => this.handler.handleEvent(momEvent, this));
 			}
@@ -179,7 +179,7 @@ When mentioning users, use @username format.`;
 		// Telegram doesn't have threads in the same way — just post as reply
 		const result = await this.bot.sendMessage(Number(channel), text, {
 			reply_to_message_id: Number(_threadTs),
-			parse_mode: "HTML",
+			parse_mode: "Markdown",
 		});
 		return String(result.message_id);
 	}
@@ -274,11 +274,22 @@ When mentioning users, use @username format.`;
 
 		// Update the single message
 		const updateDisplay = async () => {
-			const display = isWorking ? `${buildStatusDisplay()} ...` : finalText || buildStatusDisplay();
-			if (messageId) {
-				await this.updateMessage(event.channel, messageId, display);
-			} else if (display) {
-				messageId = await this.postMessage(event.channel, display);
+			if (isWorking) {
+				const display = `${buildStatusDisplay()} ...`;
+				if (messageId) {
+					await this.updateMessage(event.channel, messageId, display);
+				} else if (display) {
+					messageId = await this.postMessage(event.channel, display);
+				}
+			} else {
+				const display = finalText || buildStatusDisplay();
+				if (messageId) {
+					await this.deleteMessage(event.channel, messageId);
+					messageId = null;
+				}
+				if (display) {
+					messageId = await this.postMessage(event.channel, display);
+				}
 			}
 		};
 
