@@ -22,10 +22,11 @@ export interface TelegramAdapterConfig {
 export class TelegramAdapter implements PlatformAdapter {
 	readonly name = "telegram";
 	readonly maxMessageLength = 4096;
-	readonly formatInstructions = `## Text Formatting (Telegram HTML)
-Bold: <b>text</b>, Italic: <i>text</i>, Code: <code>code</code>, Block: <pre>code</pre>, Links: <a href="url">text</a>
-Strikethrough: <s>text</s>, Underline: <u>text</u>
+	readonly formatInstructions = `## Text Formatting (Telegram Markdown)
+Bold: **text**, Italic: __text__, Code: \`code\`, Block: \`\`\`code\`\`\`, Links: [text](url)
+Strikethrough: ~~text~~
 Do NOT use markdown formatting (* _ \` etc.) — use HTML tags only.
+If you want to send a * or _ directly, you NEED to escape it like this: * _
 
 When mentioning users, use @username format.`;
 
@@ -121,7 +122,7 @@ When mentioning users, use @username format.`;
 	}
 
 	async postMessage(channel: string, text: string): Promise<string> {
-		const result = await this.bot.sendMessage(Number(channel), text, { parse_mode: "HTML" });
+		const result = await this.bot.sendMessage(Number(channel), text, { parse_mode: "Markdown" });
 		return String(result.message_id);
 	}
 
@@ -130,7 +131,7 @@ When mentioning users, use @username format.`;
 			await this.bot.editMessageText(text, {
 				chat_id: Number(channel),
 				message_id: Number(ts),
-				parse_mode: "HTML",
+				parse_mode: "Markdown",
 			});
 		} catch (err) {
 			// Telegram throws if message content hasn't changed
@@ -231,7 +232,7 @@ When mentioning users, use @username format.`;
 
 			// Header: completed tool count
 			if (completedToolCount > 0) {
-				lines.push(`<i>${completedToolCount} tool call${completedToolCount > 1 ? "s" : ""} completed</i>`);
+				lines.push(`__${completedToolCount} tool call${completedToolCount > 1 ? "s" : ""} completed__`);
 			}
 
 			// Show recent tools (last 3)
@@ -240,7 +241,7 @@ When mentioning users, use @username format.`;
 			}
 
 			if (lines.length === 0) {
-				return eventFilename ? `<i>Starting event: ${escapeHtml(eventFilename)}</i>` : "<i>Thinking</i>";
+				return eventFilename ? `__Starting event: ${escapeHtml(eventFilename)}__` : "__Thinking__";
 			}
 
 			return lines.join("\n");
@@ -281,7 +282,7 @@ When mentioning users, use @username format.`;
 							recentTools.shift();
 							completedToolCount++;
 						}
-						recentTools.push(`<i>${escapeHtml(label)}</i>`);
+						recentTools.push(`__${escapeHtml(label)}__`);
 						await updateDisplay();
 						return;
 					}

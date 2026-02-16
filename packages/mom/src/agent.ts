@@ -186,7 +186,7 @@ function buildSystemPrompt(
 		: `You are running directly on the host machine.
 - Bash working directory: ${process.cwd()}
 - Be careful with system modifications`;
-
+	``;
 	return `## SOUL.md - Who You Are
 ${soul}
 
