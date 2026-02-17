@@ -77,6 +77,12 @@ export interface MomHandler {
 	 * Called when user says "stop" while mom is running
 	 */
 	handleStop(channelId: string, adapter: PlatformAdapter): Promise<void>;
+
+	/**
+	 * Handle /session command (ASYNC)
+	 * Returns session statistics (context size, cost, token usage)
+	 */
+	handleSession(channelId: string, adapter: PlatformAdapter): Promise<void>;
 }
 
 /**

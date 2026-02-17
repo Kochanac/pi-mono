@@ -126,6 +126,12 @@ When mentioning users, use @username format.`;
 				return;
 			}
 
+			// Check for /session
+			if (msg.text.trim() === "/session") {
+				this.handler.handleSession(chatId, this);
+				return;
+			}
+
 			// Check if busy
 			if (this.handler.isRunning(chatId)) {
 				this.postMessage(chatId, "<i>Already working. Say </i><code>stop</code><i> to cancel.</i>");

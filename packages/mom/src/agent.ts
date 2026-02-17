@@ -10,6 +10,7 @@ import {
 	ModelRegistry,
 	type ResourceLoader,
 	SessionManager,
+	type SessionStats,
 	type Skill,
 } from "@mariozechner/pi-coding-agent";
 import { existsSync, readFileSync } from "fs";
@@ -40,6 +41,7 @@ export interface AgentRunner {
 		pendingMessages?: PendingMessage[],
 	): Promise<{ stopReason: string; errorMessage?: string }>;
 	abort(): void;
+	getSessionStats(): SessionStats & { contextTokens: number; contextWindow: number };
 }
 
 async function getAnthropicApiKey(authStorage: AuthStorage): Promise<string> {
@@ -830,8 +832,8 @@ function createRunner(
 			// Handle error case - update main message and post error to thread
 			if (runState.stopReason === "error" && runState.errorMessage) {
 				try {
-					await ctx.replaceMessage("_Sorry, something went wrong_");
-					await ctx.respondInThread(`_Error: ${runState.errorMessage}_`);
+					await ctx.replaceMessage("<i>Sorry, something went wrong</i>");
+					await ctx.respondInThread(`<i>Error: ${runState.errorMessage}</i>`);
 				} catch (err) {
 					const errMsg = err instanceof Error ? err.message : String(err);
 					log.logWarning("Failed to post error message", errMsg);
@@ -901,6 +903,27 @@ function createRunner(
 
 		abort(): void {
 			session.abort();
+		},
+
+		getSessionStats() {
+			const stats = session.getSessionStats();
+
+			// Estimate context tokens from last non-aborted assistant message
+			const messages = session.messages;
+			const lastAssistant = messages
+				.slice()
+				.reverse()
+				.find((m) => m.role === "assistant" && (m as any).stopReason !== "aborted") as any;
+
+			const contextTokens = lastAssistant
+				? lastAssistant.usage.input +
+					lastAssistant.usage.output +
+					lastAssistant.usage.cacheRead +
+					lastAssistant.usage.cacheWrite
+				: 0;
+			const contextWindow = model.contextWindow || 200000;
+
+			return { ...stats, contextTokens, contextWindow };
 		},
 	};
 }

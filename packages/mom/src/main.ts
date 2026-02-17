@@ -187,6 +187,59 @@ const handler: MomHandler = {
 		}
 	},
 
+	async handleSession(channelId: string, platform: PlatformAdapter): Promise<void> {
+		const state = channelStates.get(channelId);
+		if (!state) {
+			await platform.postMessage(channelId, "No session for this channel yet.");
+			return;
+		}
+
+		const stats = state.runner.getSessionStats();
+
+		const formatTokens = (count: number): string => {
+			if (count < 1000) return count.toString();
+			if (count < 10000) return `${(count / 1000).toFixed(1)}k`;
+			if (count < 1000000) return `${Math.round(count / 1000)}k`;
+			return `${(count / 1000000).toFixed(1)}M`;
+		};
+
+		const lines: string[] = [];
+		lines.push("<b>Session Info</b>");
+		lines.push("");
+		lines.push(`<b>Messages</b>`);
+		lines.push(`User: ${stats.userMessages}`);
+		lines.push(`Assistant: ${stats.assistantMessages}`);
+		lines.push(`Tool Calls: ${stats.toolCalls}`);
+		lines.push(`Total: ${stats.totalMessages}`);
+		lines.push("");
+		lines.push(`<b>Tokens</b>`);
+		lines.push(`Input: ${stats.tokens.input.toLocaleString()}`);
+		lines.push(`Output: ${stats.tokens.output.toLocaleString()}`);
+		if (stats.tokens.cacheRead > 0) {
+			lines.push(`Cache Read: ${stats.tokens.cacheRead.toLocaleString()}`);
+		}
+		if (stats.tokens.cacheWrite > 0) {
+			lines.push(`Cache Write: ${stats.tokens.cacheWrite.toLocaleString()}`);
+		}
+		lines.push(`Total: ${stats.tokens.total.toLocaleString()}`);
+		lines.push("");
+		lines.push(`<b>Context</b>`);
+		if (stats.contextTokens > 0) {
+			const percent = ((stats.contextTokens / stats.contextWindow) * 100).toFixed(1);
+			lines.push(`${formatTokens(stats.contextTokens)} / ${formatTokens(stats.contextWindow)} (${percent}%)`);
+		} else {
+			lines.push("No context data yet");
+		}
+
+		if (stats.cost > 0) {
+			lines.push("");
+			lines.push(`<b>Cost</b>`);
+			lines.push(`Total: $${stats.cost.toFixed(4)}`);
+		}
+
+		await platform.postMessage(channelId, lines.join("\n"));
+	},
+
 	async handleEvent(event: MomEvent, platform: PlatformAdapter, isEvent?: boolean): Promise<void> {
 		const state = getState(event.channel, platform.formatInstructions);
 
