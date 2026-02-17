@@ -13,7 +13,7 @@ import {
 	type SessionStats,
 	type Skill,
 } from "@mariozechner/pi-coding-agent";
-import { existsSync, readFileSync } from "fs";
+import { existsSync, readFileSync, writeFileSync } from "fs";
 import { mkdir, writeFile } from "fs/promises";
 import { homedir } from "os";
 import { join } from "path";
@@ -930,6 +930,8 @@ function createRunner(
 		resetSession() {
 			sessionManager.newSession();
 			agent.replaceMessages([]);
+			const logFile = join(channelDir, "log.jsonl");
+			if (existsSync(logFile)) writeFileSync(logFile, "");
 			log.logInfo(`[${channelId}] Session reset`);
 		},
 	};
