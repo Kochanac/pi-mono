@@ -81,6 +81,11 @@ When mentioning users, use @username format.`;
 		const me = await this.bot.getMe();
 		log.logInfo(`Telegram bot started: @${me.username} (${me.id})`);
 
+		await this.bot.setMyCommands([
+			{ command: "stop", description: "Stop the current task" },
+			{ command: "session", description: "Show session statistics" },
+		]);
+
 		this.bot.on("message", (msg) => {
 			if (!msg.text || msg.from?.is_bot) return;
 
@@ -116,8 +121,8 @@ When mentioning users, use @username format.`;
 				isBot: false,
 			});
 
-			// Check for stop
-			if (msg.text.toLowerCase().trim() === "stop") {
+			// Check for /stop
+			if (msg.text.trim() === "/stop") {
 				if (this.handler.isRunning(chatId)) {
 					this.handler.handleStop(chatId, this);
 				} else {
@@ -134,7 +139,7 @@ When mentioning users, use @username format.`;
 
 			// Check if busy
 			if (this.handler.isRunning(chatId)) {
-				this.postMessage(chatId, "<i>Already working. Say </i><code>stop</code><i> to cancel.</i>");
+				this.postMessage(chatId, "<i>Already working. Use /stop to cancel.</i>");
 			} else {
 				this.enqueueWork(chatId, () => this.handler.handleEvent(momEvent, this));
 			}
