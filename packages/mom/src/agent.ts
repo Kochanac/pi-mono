@@ -42,6 +42,7 @@ export interface AgentRunner {
 	): Promise<{ stopReason: string; errorMessage?: string }>;
 	abort(): void;
 	getSessionStats(): SessionStats & { contextTokens: number; contextWindow: number };
+	resetSession(): void;
 }
 
 async function getAnthropicApiKey(authStorage: AuthStorage): Promise<string> {
@@ -924,6 +925,12 @@ function createRunner(
 			const contextWindow = model.contextWindow || 200000;
 
 			return { ...stats, contextTokens, contextWindow };
+		},
+
+		resetSession() {
+			sessionManager.newSession();
+			agent.replaceMessages([]);
+			log.logInfo(`[${channelId}] Session reset`);
 		},
 	};
 }

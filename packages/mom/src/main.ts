@@ -240,6 +240,18 @@ const handler: MomHandler = {
 		await platform.postMessage(channelId, lines.join("\n"));
 	},
 
+	async handleNew(channelId: string, platform: PlatformAdapter): Promise<void> {
+		const state = channelStates.get(channelId);
+		if (state?.running) {
+			await platform.postMessage(channelId, "<i>Cannot reset while running. Use /stop first.</i>");
+			return;
+		}
+		if (state) {
+			state.runner.resetSession();
+		}
+		await platform.postMessage(channelId, "<i>Session reset. Starting fresh.</i>");
+	},
+
 	async handleEvent(event: MomEvent, platform: PlatformAdapter, isEvent?: boolean): Promise<void> {
 		const state = getState(event.channel, platform.formatInstructions);
 

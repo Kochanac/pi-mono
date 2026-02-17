@@ -84,6 +84,7 @@ When mentioning users, use @username format.`;
 		await this.bot.setMyCommands([
 			{ command: "stop", description: "Stop the current task" },
 			{ command: "session", description: "Show session statistics" },
+			{ command: "new", description: "Reset context and start a fresh session" },
 		]);
 
 		this.bot.on("message", (msg) => {
@@ -134,6 +135,12 @@ When mentioning users, use @username format.`;
 			// Check for /session
 			if (msg.text.trim() === "/session") {
 				this.handler.handleSession(chatId, this);
+				return;
+			}
+
+			// Check for /new
+			if (msg.text.trim() === "/new") {
+				this.handler.handleNew(chatId, this);
 				return;
 			}
 

@@ -83,6 +83,12 @@ export interface MomHandler {
 	 * Returns session statistics (context size, cost, token usage)
 	 */
 	handleSession(channelId: string, adapter: PlatformAdapter): Promise<void>;
+
+	/**
+	 * Handle /new command (ASYNC)
+	 * Resets the session context to a fresh state
+	 */
+	handleNew(channelId: string, adapter: PlatformAdapter): Promise<void>;
 }
 
 /**
