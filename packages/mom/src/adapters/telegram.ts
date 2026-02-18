@@ -48,6 +48,8 @@ Strikethrough: <s>text</s>, Underline: <u>text</u>
 Do NOT use markdown formatting (* _ \` etc.) — use HTML tags only.
 Characters &, < and > must be escaped as &amp; &lt; &gt; when not part of tags.
 
+Convert ALL markdown tables to lists.
+
 When mentioning users, use @username format.`;
 
 	private bot: TelegramBot;
