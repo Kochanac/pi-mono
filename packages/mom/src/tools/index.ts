@@ -1,9 +1,9 @@
 import type { AgentTool } from "@mariozechner/pi-agent-core";
-import { createCodingTools } from "@mariozechner/pi-coding-agent";
+import { createCodingTools, createFindTool, createGrepTool, createLsTool } from "@mariozechner/pi-coding-agent";
 import { attachTool } from "./attach.js";
 
 export { setUploadFunction } from "./attach.js";
 
 export function createMomTools(cwd: string): AgentTool<any>[] {
-	return [...createCodingTools(cwd), attachTool];
+	return [...createCodingTools(cwd), createGrepTool(cwd), createFindTool(cwd), createLsTool(cwd), attachTool];
 }
