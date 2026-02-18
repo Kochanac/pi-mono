@@ -241,10 +241,9 @@ export function logUsageSummary(
 }
 
 // Startup (no context needed)
-export function logStartup(workingDir: string, sandbox: string): void {
+export function logStartup(workingDir: string): void {
 	console.log("Starting mom bot...");
 	console.log(`  Working directory: ${workingDir}`);
-	console.log(`  Sandbox: ${sandbox}`);
 }
 
 export function logConnected(): void {

@@ -8,7 +8,6 @@ import { type AgentRunner, getOrCreateRunner } from "./agent.js";
 import { downloadChannel } from "./download.js";
 import { createEventsWatcher } from "./events.js";
 import * as log from "./log.js";
-import { parseSandboxArg, type SandboxConfig, validateSandbox } from "./sandbox.js";
 import { ChannelStore } from "./store.js";
 
 // ============================================================================
@@ -17,25 +16,19 @@ import { ChannelStore } from "./store.js";
 
 interface ParsedArgs {
 	workingDir?: string;
-	sandbox: SandboxConfig;
 	downloadChannel?: string;
 	adapters: string[];
 }
 
 function parseArgs(): ParsedArgs {
 	const args = process.argv.slice(2);
-	let sandbox: SandboxConfig = { type: "host" };
 	let workingDir: string | undefined;
 	let downloadChannelId: string | undefined;
 	let adapterArg: string | undefined;
 
 	for (let i = 0; i < args.length; i++) {
 		const arg = args[i];
-		if (arg.startsWith("--sandbox=")) {
-			sandbox = parseSandboxArg(arg.slice("--sandbox=".length));
-		} else if (arg === "--sandbox") {
-			sandbox = parseSandboxArg(args[++i] || "");
-		} else if (arg.startsWith("--download=")) {
+		if (arg.startsWith("--download=")) {
 			downloadChannelId = arg.slice("--download=".length);
 		} else if (arg === "--download") {
 			downloadChannelId = args[++i];
@@ -68,7 +61,6 @@ function parseArgs(): ParsedArgs {
 
 	return {
 		workingDir: workingDir ? resolve(workingDir) : undefined,
-		sandbox,
 		downloadChannel: downloadChannelId,
 		adapters,
 	};
@@ -89,18 +81,13 @@ if (parsedArgs.downloadChannel) {
 
 // Normal bot mode - require working dir
 if (!parsedArgs.workingDir) {
-	console.error("Usage: mom [--sandbox=host|docker:<name>] [--adapter=slack,telegram] <working-directory>");
+	console.error("Usage: mom [--adapter=slack,telegram] <working-directory>");
 	console.error("       mom --download <channel-id>");
 	console.error("       (omit --adapter to auto-detect from env vars)");
 	process.exit(1);
 }
 
-const { workingDir, sandbox } = {
-	workingDir: parsedArgs.workingDir,
-	sandbox: parsedArgs.sandbox,
-};
-
-await validateSandbox(sandbox);
+const workingDir = parsedArgs.workingDir;
 
 // ============================================================================
 // Create platform adapters
@@ -156,7 +143,7 @@ function getState(channelId: string, formatInstructions: string): ChannelState {
 		const channelDir = join(workingDir, channelId);
 		state = {
 			running: false,
-			runner: getOrCreateRunner(sandbox, channelId, channelDir, formatInstructions),
+			runner: getOrCreateRunner(channelId, channelDir, formatInstructions),
 			store: new ChannelStore({ workingDir, botToken: process.env.MOM_SLACK_BOT_TOKEN || "" }),
 			stopRequested: false,
 		};
@@ -294,7 +281,7 @@ const handler: MomHandler = {
 // Start
 // ============================================================================
 
-log.logStartup(workingDir, sandbox.type === "host" ? "host" : `docker:${sandbox.container}`);
+log.logStartup(workingDir);
 log.logInfo(`Adapters: ${parsedArgs.adapters.join(", ")}`);
 
 for (const adapter of adapters) {

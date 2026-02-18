@@ -20,7 +20,6 @@ import { join } from "path";
 import type { ChannelInfo, MomContext, UserInfo } from "./adapters/types.js";
 import { MomSettingsManager, syncLogToSessionManager } from "./context.js";
 import * as log from "./log.js";
-import { createExecutor, type SandboxConfig } from "./sandbox.js";
 import type { ChannelStore } from "./store.js";
 import { createMomTools, setUploadFunction } from "./tools/index.js";
 
@@ -123,36 +122,19 @@ function getSoul(workspacePath: string): string {
 	return "NO SOUL";
 }
 
-function loadMomSkills(channelDir: string, workspacePath: string): Skill[] {
+function loadMomSkills(channelDir: string): Skill[] {
 	const skillMap = new Map<string, Skill>();
-
-	// channelDir is the host path (e.g., /Users/.../data/C0A34FL8PMH)
-	// hostWorkspacePath is the parent directory on host
-	// workspacePath is the container path (e.g., /workspace)
-	const hostWorkspacePath = join(channelDir, "..");
-
-	// Helper to translate host paths to container paths
-	const translatePath = (hostPath: string): string => {
-		if (hostPath.startsWith(hostWorkspacePath)) {
-			return workspacePath + hostPath.slice(hostWorkspacePath.length);
-		}
-		return hostPath;
-	};
+	const workspaceDir = join(channelDir, "..");
 
 	// Load workspace-level skills (global)
-	const workspaceSkillsDir = join(hostWorkspacePath, "skills");
+	const workspaceSkillsDir = join(workspaceDir, "skills");
 	for (const skill of loadSkillsFromDir({ dir: workspaceSkillsDir, source: "workspace" }).skills) {
-		// Translate paths to container paths for system prompt
-		skill.filePath = translatePath(skill.filePath);
-		skill.baseDir = translatePath(skill.baseDir);
 		skillMap.set(skill.name, skill);
 	}
 
 	// Load channel-specific skills (override workspace skills on collision)
 	const channelSkillsDir = join(channelDir, "skills");
 	for (const skill of loadSkillsFromDir({ dir: channelSkillsDir, source: "channel" }).skills) {
-		skill.filePath = translatePath(skill.filePath);
-		skill.baseDir = translatePath(skill.baseDir);
 		skillMap.set(skill.name, skill);
 	}
 
@@ -164,14 +146,12 @@ function buildSystemPrompt(
 	channelId: string,
 	soul: string,
 	memory: string,
-	sandboxConfig: SandboxConfig,
 	channels: ChannelInfo[],
 	users: UserInfo[],
 	skills: Skill[],
 	formatInstructions: string,
 ): string {
 	const channelPath = `${workspacePath}/${channelId}`;
-	const isDocker = sandboxConfig.type === "docker";
 
 	// Format channel mappings
 	const channelMappings =
@@ -181,15 +161,6 @@ function buildSystemPrompt(
 	const userMappings =
 		users.length > 0 ? users.map((u) => `${u.id}\t@${u.userName}\t${u.displayName}`).join("\n") : "(no users loaded)";
 
-	const envDescription = isDocker
-		? `You are running inside a Docker container (Alpine Linux).
-- Bash working directory: / (use cd or absolute paths)
-- Install tools with: apk add <package>
-- Your changes persist across sessions`
-		: `You are running directly on the host machine.
-- Bash working directory: ${process.cwd()}
-- Be careful with system modifications`;
-	``;
 	return `## SOUL.md - Who You Are
 ${soul}
 
@@ -207,7 +178,9 @@ ${channelMappings}
 ${userMappings}
 
 ## Environment
-${envDescription}
+You are running directly on the host machine.
+- Bash working directory: ${workspacePath}
+- Be careful with system modifications
 
 ## Workspace Layout
 ${workspacePath}/
@@ -326,7 +299,6 @@ Update this file whenever you modify the environment. On fresh container, read i
 ## Log Queries (for older history)
 Format: \`{"date":"...","ts":"...","user":"...","userName":"...","text":"...","isBot":false}\`
 The log contains user messages and your final responses (not tool calls/results).
-${isDocker ? "Install jq: apk add jq" : ""}
 
 \`\`\`bash
 # Recent messages
@@ -345,8 +317,6 @@ grep '"userName":"mario"' log.jsonl | tail -20 | jq -c '{date: .date[0:19], text
 - write: Create/overwrite files
 - edit: Surgical file edits
 - attach: Share files in chat
-
-Each tool requires a "label" parameter (shown to user).
 `;
 }
 
@@ -417,16 +387,11 @@ const channelRunners = new Map<string, AgentRunner>();
  * Get or create an AgentRunner for a channel.
  * Runners are cached - one per channel, persistent across messages.
  */
-export function getOrCreateRunner(
-	sandboxConfig: SandboxConfig,
-	channelId: string,
-	channelDir: string,
-	formatInstructions: string,
-): AgentRunner {
+export function getOrCreateRunner(channelId: string, channelDir: string, formatInstructions: string): AgentRunner {
 	const existing = channelRunners.get(channelId);
 	if (existing) return existing;
 
-	const runner = createRunner(sandboxConfig, channelId, channelDir, formatInstructions);
+	const runner = createRunner(channelId, channelDir, formatInstructions);
 	channelRunners.set(channelId, runner);
 	return runner;
 }
@@ -435,33 +400,17 @@ export function getOrCreateRunner(
  * Create a new AgentRunner for a channel.
  * Sets up the session and subscribes to events once.
  */
-function createRunner(
-	sandboxConfig: SandboxConfig,
-	channelId: string,
-	channelDir: string,
-	formatInstructions: string,
-): AgentRunner {
-	const executor = createExecutor(sandboxConfig);
-	const workspacePath = executor.getWorkspacePath(channelDir.replace(`/${channelId}`, ""));
+function createRunner(channelId: string, channelDir: string, formatInstructions: string): AgentRunner {
+	const workspacePath = join(channelDir, "..");
 
-	// Create tools
-	const tools = createMomTools(executor);
+	// Create tools with workspace as cwd
+	const tools = createMomTools(workspacePath);
 
 	// Initial system prompt (will be updated each run with fresh memory/channels/users/skills)
 	const memory = getMemory(channelDir);
 	const soul = getSoul(workspacePath);
-	const skills = loadMomSkills(channelDir, workspacePath);
-	const systemPrompt = buildSystemPrompt(
-		workspacePath,
-		channelId,
-		soul,
-		memory,
-		sandboxConfig,
-		[],
-		[],
-		skills,
-		formatInstructions,
-	);
+	const skills = loadMomSkills(channelDir);
+	const systemPrompt = buildSystemPrompt(workspacePath, channelId, soul, memory, [], [], skills, formatInstructions);
 
 	// Create session manager and settings manager
 	// Use a fixed context.jsonl file per channel (not timestamped like coding-agent)
@@ -708,13 +657,12 @@ function createRunner(
 			// Update system prompt with fresh memory, channel/user info, and skills
 			const soul = getSoul(workspacePath);
 			const memory = getMemory(channelDir);
-			const skills = loadMomSkills(channelDir, workspacePath);
+			const skills = loadMomSkills(channelDir);
 			const systemPrompt = buildSystemPrompt(
 				workspacePath,
 				channelId,
 				soul,
 				memory,
-				sandboxConfig,
 				ctx.channels,
 				ctx.users,
 				skills,
@@ -724,8 +672,7 @@ function createRunner(
 
 			// Set up file upload function
 			setUploadFunction(async (filePath: string, title?: string) => {
-				const hostPath = translateToHostPath(filePath, channelDir, workspacePath, channelId);
-				await ctx.uploadFile(hostPath, title);
+				await ctx.uploadFile(filePath, title);
 			});
 
 			// Reset per-run state
@@ -935,25 +882,4 @@ function createRunner(
 			log.logInfo(`[${channelId}] Session reset`);
 		},
 	};
-}
-
-/**
- * Translate container path back to host path for file operations
- */
-function translateToHostPath(
-	containerPath: string,
-	channelDir: string,
-	workspacePath: string,
-	channelId: string,
-): string {
-	if (workspacePath === "/workspace") {
-		const prefix = `/workspace/${channelId}/`;
-		if (containerPath.startsWith(prefix)) {
-			return join(channelDir, containerPath.slice(prefix.length));
-		}
-		if (containerPath.startsWith("/workspace/")) {
-			return join(channelDir, "..", containerPath.slice("/workspace/".length));
-		}
-	}
-	return containerPath;
 }
