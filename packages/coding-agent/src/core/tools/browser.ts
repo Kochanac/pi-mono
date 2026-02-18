@@ -169,8 +169,13 @@ export function createBrowserTool(options?: BrowserToolOptions): AgentTool<typeo
 
 	async function ensurePage(): Promise<Page> {
 		if (!browser || !page) {
+			const args: string[] = [];
+			if (!headless && process.env.WAYLAND_DISPLAY && !process.env.DISPLAY) {
+				args.push("--ozone-platform=wayland");
+			}
+
 			try {
-				browser = await chromium.launch({ headless });
+				browser = await chromium.launch({ headless, args });
 			} catch (e: unknown) {
 				const msg = e instanceof Error ? e.message : String(e);
 				if (msg.includes("Executable doesn't exist") || msg.includes("browserType.launch")) {
