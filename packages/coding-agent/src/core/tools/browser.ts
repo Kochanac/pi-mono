@@ -178,8 +178,8 @@ export function createBrowserTool(options?: BrowserToolOptions): AgentTool<typeo
 				browser = await chromium.launch({ headless, args });
 			} catch (e: unknown) {
 				const msg = e instanceof Error ? e.message : String(e);
-				if (msg.includes("Executable doesn't exist") || msg.includes("browserType.launch")) {
-					throw new Error("Chromium not found. Install with: npx playwright install chromium");
+				if (msg.includes("Executable doesn't exist") || msg.includes("executable doesn't exist")) {
+					throw new Error(`Chromium not found. Install with: npx playwright install chromium\n\n${msg}`);
 				}
 				throw e;
 			}
