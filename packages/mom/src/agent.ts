@@ -1,5 +1,5 @@
 import { Agent, type AgentEvent } from "@mariozechner/pi-agent-core";
-import { getModel, type ImageContent } from "@mariozechner/pi-ai";
+import { completeSimple, getModel, type ImageContent } from "@mariozechner/pi-ai";
 import {
 	AgentSession,
 	AuthStorage,
@@ -149,7 +149,6 @@ function buildSystemPrompt(
 	channels: ChannelInfo[],
 	users: UserInfo[],
 	skills: Skill[],
-	formatInstructions: string,
 ): string {
 	const channelPath = `${workspacePath}/${channelId}`;
 
@@ -168,8 +167,6 @@ ${soul}
 - For current date/time, use: date
 - You have access to previous conversation context including tool results from prior turns.
 - For older history beyond your context, search log.jsonl (contains user messages and your final responses, but not tool results).
-
-${formatInstructions}
 
 ## Channels
 ${channelMappings}
@@ -380,6 +377,41 @@ function formatToolArgs(_toolName: string, args: Record<string, unknown>): strin
 	return lines.join("\n");
 }
 
+const formatModel = getModel("openrouter", "google/gemini-2.0-flash-001");
+
+/**
+ * Post-process the agent's final text response to match platform formatting.
+ * Uses a cheap, fast model to rewrite markup without changing content.
+ */
+async function formatForPlatform(
+	text: string,
+	formatInstructions: string,
+	getApiKey: () => Promise<string>,
+): Promise<string> {
+	try {
+		const result = await completeSimple(
+			formatModel,
+			{
+				systemPrompt:
+					"You are a text formatter. Rewrite the user's message using the specified markup format. " +
+					"Do NOT change the content, meaning, or structure. Only convert formatting. " +
+					"Output ONLY the reformatted text, nothing else.\n\n" +
+					formatInstructions,
+				messages: [{ role: "user", content: [{ type: "text", text }], timestamp: Date.now() }],
+			},
+			{ apiKey: await getApiKey() },
+		);
+		const formatted = result.content
+			.filter((c): c is { type: "text"; text: string } => c.type === "text")
+			.map((c) => c.text)
+			.join("\n");
+		return formatted || text;
+	} catch (err) {
+		log.logWarning("Format post-processing failed, using raw text", err instanceof Error ? err.message : String(err));
+		return text;
+	}
+}
+
 // Cache runners per channel
 const channelRunners = new Map<string, AgentRunner>();
 
@@ -401,6 +433,8 @@ export function getOrCreateRunner(channelId: string, channelDir: string, formatI
  * Sets up the session and subscribes to events once.
  */
 function createRunner(channelId: string, channelDir: string, formatInstructions: string): AgentRunner {
+	// formatInstructions is stored for post-processing the final response
+	const _formatInstructions = formatInstructions;
 	const workspacePath = join(channelDir, "..");
 
 	// Create tools with workspace as cwd
@@ -410,7 +444,7 @@ function createRunner(channelId: string, channelDir: string, formatInstructions:
 	const memory = getMemory(channelDir);
 	const soul = getSoul(workspacePath);
 	const skills = loadMomSkills(channelDir);
-	const systemPrompt = buildSystemPrompt(workspacePath, channelId, soul, memory, [], [], skills, formatInstructions);
+	const systemPrompt = buildSystemPrompt(workspacePath, channelId, soul, memory, [], [], skills);
 
 	// Create session manager and settings manager
 	// Use a fixed context.jsonl file per channel (not timestamped like coding-agent)
@@ -666,7 +700,6 @@ function createRunner(channelId: string, channelDir: string, formatInstructions:
 				ctx.channels,
 				ctx.users,
 				skills,
-				formatInstructions,
 			);
 			session.agent.setSystemPrompt(systemPrompt);
 
@@ -790,7 +823,7 @@ function createRunner(channelId: string, channelDir: string, formatInstructions:
 				// Final message update
 				const messages = session.messages;
 				const lastAssistant = messages.filter((m) => m.role === "assistant").pop();
-				const finalText =
+				let finalText =
 					lastAssistant?.content
 						.filter((c): c is { type: "text"; text: string } => c.type === "text")
 						.map((c) => c.text)
@@ -806,6 +839,11 @@ function createRunner(channelId: string, channelDir: string, formatInstructions:
 						log.logWarning("Failed to delete message for silent response", errMsg);
 					}
 				} else if (finalText.trim()) {
+					// Reformat the final text for the platform's markup format
+					finalText = await formatForPlatform(finalText, _formatInstructions, async () =>
+						getAnthropicApiKey(authStorage),
+					);
+
 					try {
 						const mainText =
 							finalText.length > MAX_MESSAGE_LENGTH
