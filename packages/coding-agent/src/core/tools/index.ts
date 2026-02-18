@@ -9,6 +9,12 @@ export {
 	createBashTool,
 } from "./bash.js";
 export {
+	type BrowserToolInput,
+	type BrowserToolOptions,
+	browserTool,
+	createBrowserTool,
+} from "./browser.js";
+export {
 	createEditTool,
 	type EditOperations,
 	type EditToolDetails,
@@ -68,6 +74,7 @@ export {
 
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import { type BashToolOptions, bashTool, createBashTool } from "./bash.js";
+import { type BrowserToolOptions, browserTool, createBrowserTool } from "./browser.js";
 import { createEditTool, editTool } from "./edit.js";
 import { createFindTool, findTool } from "./find.js";
 import { createGrepTool, grepTool } from "./grep.js";
@@ -79,7 +86,7 @@ import { createWriteTool, writeTool } from "./write.js";
 export type Tool = AgentTool<any>;
 
 // Default tools for full access mode (using process.cwd())
-export const codingTools: Tool[] = [readTool, bashTool, editTool, writeTool];
+export const codingTools: Tool[] = [readTool, bashTool, editTool, writeTool, browserTool];
 
 // Read-only tools for exploration without modification (using process.cwd())
 export const readOnlyTools: Tool[] = [readTool, grepTool, findTool, lsTool];
@@ -93,6 +100,7 @@ export const allTools = {
 	grep: grepTool,
 	find: findTool,
 	ls: lsTool,
+	browser: browserTool,
 };
 
 export type ToolName = keyof typeof allTools;
@@ -102,6 +110,8 @@ export interface ToolsOptions {
 	read?: ReadToolOptions;
 	/** Options for the bash tool */
 	bash?: BashToolOptions;
+	/** Options for the browser tool */
+	browser?: BrowserToolOptions;
 }
 
 /**
@@ -113,6 +123,7 @@ export function createCodingTools(cwd: string, options?: ToolsOptions): Tool[] {
 		createBashTool(cwd, options?.bash),
 		createEditTool(cwd),
 		createWriteTool(cwd),
+		createBrowserTool(options?.browser),
 	];
 }
 
@@ -135,5 +146,6 @@ export function createAllTools(cwd: string, options?: ToolsOptions): Record<Tool
 		grep: createGrepTool(cwd),
 		find: createFindTool(cwd),
 		ls: createLsTool(cwd),
+		browser: createBrowserTool(options?.browser),
 	};
 }

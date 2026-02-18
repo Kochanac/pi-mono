@@ -14,6 +14,7 @@ const toolDescriptions: Record<string, string> = {
 	grep: "Search file contents for patterns (respects .gitignore)",
 	find: "Find files by glob pattern (respects .gitignore)",
 	ls: "List directory contents",
+	browser: "Control a headed browser (navigate, snapshot, click, type, screenshot, etc.)",
 };
 
 export interface BuildSystemPromptOptions {

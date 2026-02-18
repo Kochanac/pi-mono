@@ -483,7 +483,7 @@ describe("totalTokens field", () => {
 			"mistralai/mistral-small-3.1-24b-instruct - should return totalTokens equal to sum of components",
 			{ retry: 3, timeout: 60000 },
 			async () => {
-				const llm = getModel("openrouter", "mistralai/mistral-small-3.1-24b-instruct");
+				const llm = getModel("openrouter", "mistralai/ministral-3b-2512");
 
 				console.log(`\nOpenRouter / ${llm.id}:`);
 				const { first, second } = await testTotalTokensWithCache(llm, { apiKey: process.env.OPENROUTER_API_KEY });

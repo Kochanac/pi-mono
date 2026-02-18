@@ -313,6 +313,7 @@ grep '"userName":"mario"' log.jsonl | tail -20 | jq -c '{date: .date[0:19], text
 - read: Read files
 - write: Create/overwrite files
 - edit: Surgical file edits
+- browser: Control a headed browser (navigate, snapshot, click, type, screenshot, etc.)
 - attach: Share files in chat
 `;
 }
