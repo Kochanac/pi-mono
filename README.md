@@ -1,3 +1,12 @@
+## Features of this fork
+
+- **Telegram adapter for mom bot from https://github.com/alosec/pi-mono/tree/feat/mom-platform-adapters**
+- **SOUL.md session start** — Replaced default session start with a custom SOUL.md prompt.
+- **Telegram commands** — `/session`, `/new`, and other slash commands integrated into the Telegram adapter.
+- **Coding-agent tools for mom** — Removed custom mom tools (bash, edit, read, write, truncate, sandbox) in favor of reusing the coding-agent tool set (including `ls`, `grep`, and friends).
+- **Browser tool** — Added a browser tool to the coding-agent (`packages/coding-agent/src/core/tools/browser.ts`).
+
+
 # 🏖️ OSS Vacation
 
 **Issue tracker and PRs reopen February 16, 2026.**
