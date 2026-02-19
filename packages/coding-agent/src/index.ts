@@ -2,6 +2,8 @@
 
 // Config paths
 export { getAgentDir, VERSION } from "./config.js";
+// Built-in advisors
+export { createInlandEmpireAdvisor } from "./core/advisors/inland-empire.js";
 export {
 	AgentSession,
 	type AgentSessionConfig,
