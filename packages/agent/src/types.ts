@@ -11,87 +11,6 @@ import type {
 } from "@mariozechner/pi-ai";
 import type { Static, TSchema } from "@sinclair/typebox";
 
-// ── Advisor types ──────────────────────────────────────────────────────────
-
-/** Parameters passed to an advisor trigger function. */
-export interface AdvisorTriggerParams {
-	messages: AgentMessage[];
-	toolName: string;
-	toolArgs: Record<string, any>;
-	toolResult: ToolResultMessage;
-}
-
-/**
- * Predicate that decides whether an advisor should run after a tool execution.
- * Receives the full agent context plus the triggering tool call details.
- */
-export type AdvisorTrigger = (params: AdvisorTriggerParams) => boolean | Promise<boolean>;
-
-/** Message produced by an advisor, injected into the parent agent's context. */
-export interface AdvisorMessage {
-	role: "advisor";
-	advisorName: string;
-	content: string;
-	model: string;
-	timestamp: number;
-}
-
-/**
- * Configuration for an advisor — a sub-agent that runs after specific tool
- * executions and injects feedback into the parent agent's context.
- */
-export interface AdvisorConfig {
-	/** Unique name for this advisor. */
-	name: string;
-
-	/** Model used for the advisor's LLM calls. */
-	model: Model<any>;
-
-	/** Decides whether this advisor fires after a given tool execution. */
-	trigger: AdvisorTrigger;
-
-	/** Tools available to the advisor. Omit for a pure single-LLM-call advisor. */
-	tools?: AgentTool<any>[];
-
-	/** Nested advisors for this advisor (recursive). Typically empty. */
-	advisors?: AdvisorConfig[];
-
-	/**
-	 * Build the advisor's starting context from the parent's full context.
-	 * Return a system prompt and messages (ending with a user message as the task).
-	 */
-	createContext: (params: {
-		systemPrompt: string;
-		messages: AgentMessage[];
-		toolName: string;
-		toolArgs: Record<string, any>;
-		toolResult: ToolResultMessage;
-	}) =>
-		| { systemPrompt: string; messages: AgentMessage[] }
-		| Promise<{ systemPrompt: string; messages: AgentMessage[] }>;
-
-	/**
-	 * Extract the final advisory text from the advisor's completed messages.
-	 * Default: text content of the last assistant message.
-	 */
-	extractResult?: (messages: AgentMessage[]) => string;
-
-	/**
-	 * Custom convertToLlm for the advisor's own agent loop.
-	 * Default handles standard messages + advisor messages.
-	 */
-	convertToLlm?: (messages: AgentMessage[]) => Message[] | Promise<Message[]>;
-
-	/** Static API key for the advisor model. */
-	apiKey?: string;
-
-	/** Dynamic API key resolver for the advisor model. */
-	getApiKey?: (provider: string) => Promise<string | undefined> | string | undefined;
-
-	/** Thinking/reasoning level for the advisor model. */
-	thinkingLevel?: ThinkingLevel;
-}
-
 /** Stream function - can return sync or Promise for async config lookup */
 export type StreamFn = (
 	...args: Parameters<typeof streamSimple>
@@ -176,13 +95,6 @@ export interface AgentLoopConfig extends SimpleStreamOptions {
 	 * Use this for follow-up messages that should wait until the agent finishes.
 	 */
 	getFollowUpMessages?: () => Promise<AgentMessage[]>;
-
-	/**
-	 * Advisors that run after matching tool executions.
-	 * Each advisor is a sub-agent that reviews the context and injects
-	 * a feedback message before the next LLM call.
-	 */
-	advisors?: AdvisorConfig[];
 }
 
 /**
@@ -206,7 +118,7 @@ export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhi
  * ```
  */
 export interface CustomAgentMessages {
-	advisor: AdvisorMessage;
+	// Empty by default - apps extend via declaration merging
 }
 
 /**
@@ -279,9 +191,4 @@ export type AgentEvent =
 	// Tool execution lifecycle
 	| { type: "tool_execution_start"; toolCallId: string; toolName: string; args: any }
 	| { type: "tool_execution_update"; toolCallId: string; toolName: string; args: any; partialResult: any }
-	| { type: "tool_execution_end"; toolCallId: string; toolName: string; result: any; isError: boolean }
-	// Advisor lifecycle
-	| { type: "advisor_start"; advisorName: string; toolName: string }
-	| { type: "advisor_event"; advisorName: string; event: AgentEvent }
-	| { type: "advisor_end"; advisorName: string; content: string }
-	| { type: "advisor_error"; advisorName: string; error: string };
+	| { type: "tool_execution_end"; toolCallId: string; toolName: string; result: any; isError: boolean };

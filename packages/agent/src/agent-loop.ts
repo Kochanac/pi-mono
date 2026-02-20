@@ -11,14 +11,12 @@ import {
 	type ToolResultMessage,
 	validateToolArguments,
 } from "@mariozechner/pi-ai";
-import { createAdvisorMessage, defaultAdvisorConvertToLlm, defaultExtractResult } from "./advisor.js";
 import type {
-	AdvisorConfig,
-	AdvisorMessage,
 	AgentContext,
 	AgentEvent,
 	AgentLoopConfig,
 	AgentMessage,
+	AgentTool,
 	AgentToolResult,
 	StreamFn,
 } from "./types.js";
@@ -157,16 +155,19 @@ async function runLoop(
 			const toolResults: ToolResultMessage[] = [];
 			if (hasMoreToolCalls) {
 				const toolExecution = await executeToolCalls(
-					currentContext,
-					newMessages,
+					currentContext.tools,
 					message,
-					config,
 					signal,
 					stream,
-					streamFn,
+					config.getSteeringMessages,
 				);
 				toolResults.push(...toolExecution.toolResults);
 				steeringAfterTools = toolExecution.steeringMessages ?? null;
+
+				for (const result of toolResults) {
+					currentContext.messages.push(result);
+					newMessages.push(result);
+				}
 			}
 
 			stream.push({ type: "turn_end", message, toolResults });
@@ -289,16 +290,13 @@ async function streamAssistantResponse(
 
 /**
  * Execute tool calls from an assistant message.
- * Runs matching advisors after each tool result, adding their messages to context.
  */
 async function executeToolCalls(
-	context: AgentContext,
-	newMessages: AgentMessage[],
+	tools: AgentTool<any>[] | undefined,
 	assistantMessage: AssistantMessage,
-	config: AgentLoopConfig,
 	signal: AbortSignal | undefined,
 	stream: EventStream<AgentEvent, AgentMessage[]>,
-	streamFn?: StreamFn,
+	getSteeringMessages?: AgentLoopConfig["getSteeringMessages"],
 ): Promise<{ toolResults: ToolResultMessage[]; steeringMessages?: AgentMessage[] }> {
 	const toolCalls = assistantMessage.content.filter((c) => c.type === "toolCall");
 	const results: ToolResultMessage[] = [];
@@ -306,7 +304,7 @@ async function executeToolCalls(
 
 	for (let index = 0; index < toolCalls.length; index++) {
 		const toolCall = toolCalls[index];
-		const tool = context.tools?.find((t) => t.name === toolCall.name);
+		const tool = tools?.find((t) => t.name === toolCall.name);
 
 		stream.push({
 			type: "tool_execution_start",
@@ -359,33 +357,17 @@ async function executeToolCalls(
 		};
 
 		results.push(toolResultMessage);
-		context.messages.push(toolResultMessage);
-		newMessages.push(toolResultMessage);
 		stream.push({ type: "message_start", message: toolResultMessage });
 		stream.push({ type: "message_end", message: toolResultMessage });
 
-		await handleAdvisors(
-			config.advisors,
-			context,
-			newMessages,
-			toolCall,
-			toolResultMessage,
-			stream,
-			signal,
-			streamFn,
-		);
-
 		// Check for steering messages - skip remaining tools if user interrupted
-		if (config.getSteeringMessages) {
-			const steering = await config.getSteeringMessages();
+		if (getSteeringMessages) {
+			const steering = await getSteeringMessages();
 			if (steering.length > 0) {
 				steeringMessages = steering;
 				const remainingCalls = toolCalls.slice(index + 1);
 				for (const skipped of remainingCalls) {
-					const skippedResult = skipToolCall(skipped, stream);
-					results.push(skippedResult);
-					context.messages.push(skippedResult);
-					newMessages.push(skippedResult);
+					results.push(skipToolCall(skipped, stream));
 				}
 				break;
 			}
@@ -393,110 +375,6 @@ async function executeToolCalls(
 	}
 
 	return { toolResults: results, steeringMessages };
-}
-
-/**
- * Run matching advisors after a tool result, injecting their messages into context.
- */
-async function handleAdvisors(
-	advisors: AdvisorConfig[] | undefined,
-	context: AgentContext,
-	newMessages: AgentMessage[],
-	toolCall: { name: string; arguments: Record<string, any> },
-	toolResult: ToolResultMessage,
-	stream: EventStream<AgentEvent, AgentMessage[]>,
-	signal?: AbortSignal,
-	streamFn?: StreamFn,
-): Promise<void> {
-	if (!advisors?.length) return;
-
-	for (const advisor of advisors) {
-		const triggered = await advisor.trigger({
-			messages: context.messages,
-			toolName: toolCall.name,
-			toolArgs: toolCall.arguments,
-			toolResult,
-		});
-		if (!triggered) continue;
-
-		stream.push({ type: "advisor_start", advisorName: advisor.name, toolName: toolCall.name });
-		const advisorMsg = await runAdvisor(
-			advisor,
-			{
-				systemPrompt: context.systemPrompt,
-				messages: [...context.messages],
-				toolName: toolCall.name,
-				toolArgs: toolCall.arguments,
-				toolResult,
-			},
-			stream,
-			signal,
-			streamFn,
-		);
-		if (advisorMsg) {
-			context.messages.push(advisorMsg);
-			newMessages.push(advisorMsg);
-			stream.push({ type: "message_start", message: advisorMsg });
-			stream.push({ type: "message_end", message: advisorMsg });
-			stream.push({ type: "advisor_end", advisorName: advisor.name, content: advisorMsg.content });
-		}
-	}
-}
-
-/**
- * Run an advisor sub-agent and return the resulting message, or null on error.
- */
-async function runAdvisor(
-	advisor: AdvisorConfig,
-	params: {
-		systemPrompt: string;
-		messages: AgentMessage[];
-		toolName: string;
-		toolArgs: Record<string, any>;
-		toolResult: ToolResultMessage;
-	},
-	parentStream: EventStream<AgentEvent, AgentMessage[]>,
-	signal?: AbortSignal,
-	streamFn?: StreamFn,
-): Promise<AdvisorMessage | null> {
-	try {
-		const advisorCtx = await advisor.createContext(params);
-
-		const advisorAgentContext: AgentContext = {
-			systemPrompt: advisorCtx.systemPrompt,
-			messages: [],
-			tools: advisor.tools,
-		};
-
-		const advisorConfig: AgentLoopConfig = {
-			model: advisor.model,
-			convertToLlm: advisor.convertToLlm ?? defaultAdvisorConvertToLlm,
-			advisors: advisor.advisors,
-			reasoning: advisor.thinkingLevel && advisor.thinkingLevel !== "off" ? advisor.thinkingLevel : undefined,
-			apiKey: advisor.apiKey,
-			getApiKey: advisor.getApiKey,
-		};
-
-		const advisorStream = agentLoop(advisorCtx.messages, advisorAgentContext, advisorConfig, signal, streamFn);
-
-		for await (const event of advisorStream) {
-			parentStream.push({ type: "advisor_event", advisorName: advisor.name, event });
-		}
-
-		const resultMessages = await advisorStream.result();
-		const extractResult = advisor.extractResult ?? defaultExtractResult;
-		const content = extractResult(resultMessages);
-
-		if (!content) return null;
-		return createAdvisorMessage(advisor.name, advisor.model.id, content);
-	} catch (err) {
-		parentStream.push({
-			type: "advisor_error",
-			advisorName: advisor.name,
-			error: err instanceof Error ? err.message : String(err),
-		});
-		return null;
-	}
 }
 
 function skipToolCall(

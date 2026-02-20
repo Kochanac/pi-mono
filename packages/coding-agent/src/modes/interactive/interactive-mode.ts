@@ -935,13 +935,6 @@ export class InteractiveMode {
 				this.chatContainer.addChild(new Spacer(1));
 			}
 
-			const advisors = this.session.agent.advisors ?? [];
-			if (advisors.length > 0) {
-				const advisorList = advisors.map((a) => theme.fg("dim", `  ${a.name}`)).join("\n");
-				this.chatContainer.addChild(new Text(`${sectionHeader("Advisors")}\n${advisorList}`, 0, 0));
-				this.chatContainer.addChild(new Spacer(1));
-			}
-
 			// Show loaded themes (excluding built-in)
 			const loadedThemes = themesResult.themes;
 			const customThemes = loadedThemes.filter((t) => t.sourcePath);
@@ -2088,10 +2081,7 @@ export class InteractiveMode {
 				break;
 
 			case "message_start":
-				if (event.message.role === "advisor") {
-					this.addMessageToChat(event.message);
-					this.ui.requestRender();
-				} else if (event.message.role === "custom") {
+				if (event.message.role === "custom") {
 					this.addMessageToChat(event.message);
 					this.ui.requestRender();
 				} else if (event.message.role === "user") {
@@ -2456,13 +2446,6 @@ export class InteractiveMode {
 			}
 			case "toolResult": {
 				// Tool results are rendered inline with tool calls, handled separately
-				break;
-			}
-			case "advisor": {
-				// Advisor messages are contextual feedback; render as a simple user-style note
-				const advisorText = `**[${message.advisorName}]** ${message.content}`;
-				const advisorComponent = new UserMessageComponent(advisorText, this.getMarkdownThemeWithSettings());
-				this.chatContainer.addChild(advisorComponent);
 				break;
 			}
 			default: {

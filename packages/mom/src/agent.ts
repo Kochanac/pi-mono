@@ -378,7 +378,7 @@ function formatToolArgs(_toolName: string, args: Record<string, unknown>): strin
 	return lines.join("\n");
 }
 
-const formatModel = getModel("openrouter", "qwen/qwen3-coder-next");
+const formatModel = getModel("openrouter", "google/gemini-2.0-flash-001");
 
 /**
  * Post-process the agent's final text response to match platform formatting.

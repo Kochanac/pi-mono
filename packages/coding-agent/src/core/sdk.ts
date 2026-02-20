@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { type AdvisorConfig, Agent, type AgentMessage, type ThinkingLevel } from "@mariozechner/pi-agent-core";
+import { Agent, type AgentMessage, type ThinkingLevel } from "@mariozechner/pi-agent-core";
 import type { Message, Model } from "@mariozechner/pi-ai";
 import { getAgentDir, getDocsPath } from "../config.js";
 import { AgentSession } from "./agent-session.js";
@@ -77,9 +77,6 @@ export interface CreateAgentSessionOptions {
 
 	/** Settings manager. Default: SettingsManager.create(cwd, agentDir) */
 	settingsManager?: SettingsManager;
-
-	/** Advisors that run after matching tool executions. */
-	advisors?: AdvisorConfig[];
 }
 
 /** Result from createAgentSession */
@@ -314,14 +311,6 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 
 	const extensionRunnerRef: { current?: ExtensionRunner } = {};
 
-	const defaultAdvisors: AdvisorConfig[] = [];
-	// if (model) {
-	// 	defaultAdvisors.push({
-	// 		...createInlandEmpireAdvisor(model),
-	// 		getApiKey: async (provider) => modelRegistry.getApiKeyForProvider(provider),
-	// 	});
-	// }
-
 	agent = new Agent({
 		initialState: {
 			systemPrompt: "",
@@ -330,7 +319,6 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 			tools: [],
 		},
 		convertToLlm: convertToLlmWithBlockImages,
-		advisors: [...defaultAdvisors, ...(options.advisors ?? [])],
 		sessionId: sessionManager.getSessionId(),
 		transformContext: async (messages) => {
 			const runner = extensionRunnerRef.current;

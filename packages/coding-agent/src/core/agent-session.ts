@@ -354,10 +354,9 @@ export class AgentSession {
 			} else if (
 				event.message.role === "user" ||
 				event.message.role === "assistant" ||
-				event.message.role === "toolResult" ||
-				event.message.role === "advisor"
+				event.message.role === "toolResult"
 			) {
-				// Regular LLM message or advisor message - persist as SessionMessageEntry
+				// Regular LLM message - persist as SessionMessageEntry
 				this.sessionManager.appendMessage(event.message);
 			}
 			// Other message types (bashExecution, compactionSummary, branchSummary) are persisted elsewhere
