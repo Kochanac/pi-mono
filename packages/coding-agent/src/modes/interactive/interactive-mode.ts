@@ -1963,6 +1963,11 @@ export class InteractiveMode {
 				await this.handleReloadCommand();
 				return;
 			}
+			if (text === "/tasks") {
+				this.editor.setText("");
+				await this.handleTasksCommand();
+				return;
+			}
 			if (text === "/debug") {
 				this.handleDebugCommand();
 				this.editor.setText("");
@@ -2552,11 +2557,17 @@ export class InteractiveMode {
 	}
 
 	async getUserInput(): Promise<string> {
+		// Task list overlay disabled - was showing modal that blocked input
+		// await this.showTaskListOverlay();
+
 		return new Promise((resolve) => {
-			this.onInputCallback = (text: string) => {
+			const handleInput = (text: string) => {
+				// Task list overlay disabled
+				// this.hideTaskListOverlay();
 				this.onInputCallback = undefined;
 				resolve(text);
 			};
+			this.onInputCallback = handleInput;
 		});
 	}
 
@@ -3810,6 +3821,17 @@ export class InteractiveMode {
 			dismissLoader(previousEditor as Component);
 			this.showError(`Reload failed: ${error instanceof Error ? error.message : String(error)}`);
 		}
+	}
+
+	private async handleTasksCommand(): Promise<void> {
+		const { getCurrentTaskList, formatTaskListForDisplay } = await import("./components/task-list.js");
+		const items = getCurrentTaskList();
+		const taskText = formatTaskListForDisplay(items);
+		// Show as chat message (non-blocking)
+		this.chatContainer.addChild(new Spacer(1));
+		this.chatContainer.addChild(new Text(taskText, 1, 0));
+		this.chatContainer.addChild(new Spacer(1));
+		this.ui.requestRender();
 	}
 
 	private async handleExportCommand(text: string): Promise<void> {

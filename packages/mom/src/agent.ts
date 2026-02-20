@@ -523,6 +523,46 @@ function createRunner(channelId: string, channelDir: string, formatInstructions:
 		errorMessage: undefined as string | undefined,
 	};
 
+	/**
+	 * Get the current task list formatted for display.
+	 * Returns empty string if task list is unavailable or empty.
+	 */
+	async function getTaskListForDisplay(): Promise<string> {
+		try {
+			// Find the taskList tool in the tools array
+			const taskListTool = tools.find((t) => t.name === "taskList");
+			if (!taskListTool || !taskListTool.execute) {
+				return "";
+			}
+
+			// Call taskList to get current tasks
+			const result = await taskListTool.execute("mom-thinking", { status: undefined, includeCompleted: true });
+			if (!result || !result.content) {
+				return "";
+			}
+
+			// Get text content from result
+			const textContent = result.content.find((c) => c.type === "text");
+			if (!textContent || textContent.type !== "text") {
+				return "";
+			}
+
+			const taskListText = textContent.text;
+
+			// Check if there are tasks (not just the header)
+			const lines = taskListText.split("\n").filter((l) => l.trim());
+			if (lines.length <= 2) {
+				// Header + "No tasks found" or empty
+				return "";
+			}
+
+			return `\n${taskListText}`;
+		} catch {
+			// Silently fail - task list is non-critical
+			return "";
+		}
+	}
+
 	// Subscribe to events ONCE
 	session.subscribe(async (event) => {
 		// Skip if no active run
@@ -616,10 +656,14 @@ function createRunner(channelId: string, channelDir: string, formatInstructions:
 
 				const text = textParts.join("\n");
 
+				// Get task list for display
+				const taskList = await getTaskListForDisplay();
+
 				for (const thinking of thinkingParts) {
 					log.logThinking(logCtx, thinking);
-					queue.enqueueMessage(`_${thinking}_`, "main", "thinking main");
-					queue.enqueueMessage(`_${thinking}_`, "thread", "thinking thread", false);
+					const messageWithTasks = taskList ? `${thinking}${taskList}` : thinking;
+					queue.enqueueMessage(`_${messageWithTasks}_`, "main", "thinking main");
+					queue.enqueueMessage(`_${messageWithTasks}_`, "thread", "thinking thread", false);
 				}
 
 				if (text.trim()) {
