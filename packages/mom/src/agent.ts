@@ -5,6 +5,8 @@ import {
 	AuthStorage,
 	convertToLlm,
 	createExtensionRuntime,
+	discoverAndLoadExtensions,
+	ExtensionRunner,
 	formatSkillsForPrompt,
 	loadSkillsFromDir,
 	ModelRegistry,
@@ -12,6 +14,7 @@ import {
 	SessionManager,
 	type SessionStats,
 	type Skill,
+	wrapToolsWithExtensions,
 } from "@mariozechner/pi-coding-agent";
 import { existsSync, readFileSync, writeFileSync } from "fs";
 import { mkdir, writeFile } from "fs/promises";
@@ -25,6 +28,44 @@ import { createMomTools, setUploadFunction } from "./tools/index.js";
 
 // Hardcoded model for now - TODO: make configurable (issue #63)
 const model = getModel("openrouter", "qwen/qwen3-coder-next");
+
+// Global extension runner - loaded once and shared across all channels
+let globalExtensionRunner: ExtensionRunner | null = null;
+
+/**
+ * Initialize extensions from standard locations.
+ * Loads from ~/.pi/agent/extensions/ and <cwd>/.pi/extensions/
+ */
+async function getExtensionRunner(): Promise<ExtensionRunner | null> {
+	if (globalExtensionRunner) return globalExtensionRunner;
+
+	const cwd = process.cwd();
+	const agentDir = join(homedir(), ".pi", "agent");
+
+	const result = await discoverAndLoadExtensions([], cwd, agentDir);
+
+	// Log extension loading results
+	for (const ext of result.extensions) {
+		log.logInfo(`Loaded extension: ${ext.path}`);
+	}
+	for (const error of result.errors) {
+		log.logWarning(`Extension error (${error.path}): ${error.error}`);
+	}
+
+	if (result.extensions.length > 0) {
+		// Create the runner but don't bind core yet - we'll do that per channel
+		globalExtensionRunner = new ExtensionRunner(
+			result.extensions,
+			result.runtime,
+			cwd,
+			SessionManager.inMemory(),
+			new ModelRegistry(new AuthStorage()),
+		);
+		log.logInfo(`Extensions loaded: ${result.extensions.length}`);
+	}
+
+	return globalExtensionRunner;
+}
 
 export interface PendingMessage {
 	userName: string;
@@ -429,6 +470,9 @@ export function getOrCreateRunner(channelId: string, channelDir: string, formatI
 	return runner;
 }
 
+// Track if we've started loading extensions
+let extensionLoadingStarted = false;
+
 /**
  * Create a new AgentRunner for a channel.
  * Sets up the session and subscribes to events once.
@@ -437,6 +481,15 @@ function createRunner(channelId: string, channelDir: string, formatInstructions:
 	// formatInstructions is stored for post-processing the final response
 	const _formatInstructions = formatInstructions;
 	const workspacePath = join(channelDir, "..");
+	const cwd = process.cwd();
+
+	// Start loading extensions (once globally, async)
+	if (!extensionLoadingStarted) {
+		extensionLoadingStarted = true;
+		getExtensionRunner().catch((err) => {
+			log.logWarning("Failed to load extensions", err instanceof Error ? err.message : String(err));
+		});
+	}
 
 	// Create tools with workspace as cwd
 	const tools = createMomTools(workspacePath);
@@ -477,6 +530,8 @@ function createRunner(channelId: string, channelDir: string, formatInstructions:
 		log.logInfo(`[${channelId}] Loaded ${loadedSession.messages.length} messages from context.jsonl`);
 	}
 
+	// Note: Extensions will be loaded async in the background.
+	// Tools will be wrapped when extensions are ready via the run() method.
 	const resourceLoader: ResourceLoader = {
 		getExtensions: () => ({ extensions: [], errors: [], runtime: createExtensionRuntime() }),
 		getSkills: () => ({ skills: [], diagnostics: [] }),
@@ -497,7 +552,7 @@ function createRunner(channelId: string, channelDir: string, formatInstructions:
 		agent,
 		sessionManager,
 		settingsManager: settingsManager as any,
-		cwd: process.cwd(),
+		cwd,
 		modelRegistry,
 		resourceLoader,
 		baseToolsOverride,
@@ -708,6 +763,46 @@ function createRunner(channelId: string, channelDir: string, formatInstructions:
 			setUploadFunction(async (filePath: string, title?: string) => {
 				await ctx.uploadFile(filePath, title);
 			});
+
+			// Wrap tools with extension callbacks if extensions are loaded
+			const extRunner = await getExtensionRunner();
+			if (extRunner && extRunner.getAllRegisteredTools().length > 0) {
+				const registeredTools = extRunner.getAllRegisteredTools();
+				const currentTools = session.agent.state.tools;
+				const extTools = wrapToolsWithExtensions(currentTools, extRunner);
+				session.agent.setTools(extTools);
+
+				// Bind extension core functions for this channel
+				extRunner.bindCore(
+					{
+						sendMessage: () => {},
+						sendUserMessage: () => {},
+						appendEntry: () => {},
+						setSessionName: () => {},
+						getSessionName: () => undefined,
+						setLabel: () => {},
+						getActiveTools: () => extTools.map((t) => t.name),
+						getAllTools: () => extTools,
+						setActiveTools: () => {},
+						getCommands: () => [],
+						setModel: async () => true,
+						getThinkingLevel: () => "off",
+						setThinkingLevel: () => {},
+					},
+					{
+						getModel: () => model,
+						isIdle: () => false,
+						abort: () => {},
+						hasPendingMessages: () => false,
+						shutdown: () => {},
+						getContextUsage: () => undefined,
+						compact: () => {},
+						getSystemPrompt: () => systemPrompt,
+					},
+				);
+
+				log.logInfo(`[${channelId}] Loaded ${registeredTools.length} extension tools`);
+			}
 
 			// Reset per-run state
 			runState.ctx = ctx;
