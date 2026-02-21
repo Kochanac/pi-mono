@@ -8774,6 +8774,23 @@ export const MODELS = {
 			contextWindow: 200000,
 			maxTokens: 100000,
 		} satisfies Model<"openai-completions">,
+		"openrouter/aurora-alpha": {
+			id: "openrouter/aurora-alpha",
+			name: "Aurora Alpha",
+			api: "openai-completions",
+			provider: "openrouter",
+			baseUrl: "https://openrouter.ai/api/v1",
+			reasoning: true,
+			input: ["text"],
+			cost: {
+				input: 0,
+				output: 0,
+				cacheRead: 0,
+				cacheWrite: 0,
+			},
+			contextWindow: 128000,
+			maxTokens: 50000,
+		} satisfies Model<"openai-completions">,
 		"openrouter/auto": {
 			id: "openrouter/auto",
 			name: "Auto Router",

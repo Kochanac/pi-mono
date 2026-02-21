@@ -54,46 +54,6 @@ export {
 	type ReadToolOptions,
 	readTool,
 } from "./read.js";
-// Task tools
-export {
-	createTaskCreateTool,
-	type TaskCreateDetails,
-	type TaskCreateInput,
-	taskCreateTool,
-} from "./task-create.js";
-export {
-	createTaskGetTool,
-	type TaskGetDetails,
-	type TaskGetInput,
-	taskGetTool,
-} from "./task-get.js";
-export {
-	createTaskListTool,
-	type TaskListDetails,
-	type TaskListInput,
-	taskListTool,
-} from "./task-list.js";
-export {
-	createTaskResetTool,
-	type TaskResetDetails,
-	type TaskResetInput,
-	taskResetTool,
-} from "./task-reset.js";
-export {
-	createTaskUpdateTool,
-	type TaskUpdateDetails,
-	type TaskUpdateInput,
-	taskUpdateTool,
-} from "./task-update.js";
-export {
-	defaultTaskStorageOperations,
-	generateTaskId,
-	getCurrentTaskListId,
-	getOrCreateTaskList,
-	type TaskList,
-	type TaskStatus,
-	type TaskStorageOperations,
-} from "./tasks-storage.js";
 export {
 	DEFAULT_MAX_BYTES,
 	DEFAULT_MAX_LINES,
@@ -120,37 +80,18 @@ import { createFindTool, findTool } from "./find.js";
 import { createGrepTool, grepTool } from "./grep.js";
 import { createLsTool, lsTool } from "./ls.js";
 import { createReadTool, type ReadToolOptions, readTool } from "./read.js";
-import { createTaskCreateTool, taskCreateTool } from "./task-create.js";
-import { createTaskGetTool, taskGetTool } from "./task-get.js";
-import { createTaskListTool, taskListTool } from "./task-list.js";
-import { createTaskResetTool, taskResetTool } from "./task-reset.js";
-import { createTaskUpdateTool, taskUpdateTool } from "./task-update.js";
 import { createWriteTool, writeTool } from "./write.js";
 
 /** Tool type (AgentTool from pi-ai) */
 export type Tool = AgentTool<any>;
 
 // Default tools for full access mode (using process.cwd())
-export const codingTools: Tool[] = [
-	readTool,
-	bashTool,
-	editTool,
-	writeTool,
-	browserTool,
-	taskCreateTool,
-	taskGetTool,
-	taskListTool,
-	taskResetTool,
-	taskUpdateTool,
-];
+export const codingTools: Tool[] = [readTool, bashTool, editTool, writeTool, browserTool];
 
 // Read-only tools for exploration without modification (using process.cwd())
 export const readOnlyTools: Tool[] = [readTool, grepTool, findTool, lsTool];
 
-// Task management tools
-export const taskTools: Tool[] = [taskCreateTool, taskGetTool, taskListTool, taskResetTool, taskUpdateTool];
-
-// All coding tools including task management
+// All available tools (using process.cwd())
 export const allTools = {
 	read: readTool,
 	bash: bashTool,
@@ -160,11 +101,6 @@ export const allTools = {
 	find: findTool,
 	ls: lsTool,
 	browser: browserTool,
-	taskCreate: taskCreateTool,
-	taskGet: taskGetTool,
-	taskList: taskListTool,
-	taskReset: taskResetTool,
-	taskUpdate: taskUpdateTool,
 };
 
 export type ToolName = keyof typeof allTools;
@@ -211,26 +147,5 @@ export function createAllTools(cwd: string, options?: ToolsOptions): Record<Tool
 		find: createFindTool(cwd),
 		ls: createLsTool(cwd),
 		browser: createBrowserTool(options?.browser),
-		taskCreate: createTaskCreateTool(),
-		taskGet: createTaskGetTool(),
-		taskList: createTaskListTool(),
-		taskReset: createTaskResetTool(),
-		taskUpdate: createTaskUpdateTool(),
-	};
-}
-
-/**
- * Create task management tools.
- */
-export function createTaskManagementTools(): Record<
-	"taskCreate" | "taskGet" | "taskList" | "taskReset" | "taskUpdate",
-	Tool
-> {
-	return {
-		taskCreate: createTaskCreateTool(),
-		taskGet: createTaskGetTool(),
-		taskList: createTaskListTool(),
-		taskReset: createTaskResetTool(),
-		taskUpdate: createTaskUpdateTool(),
 	};
 }

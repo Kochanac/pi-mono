@@ -2,6 +2,7 @@ import { join } from "node:path";
 import { type AdvisorConfig, Agent, type AgentMessage, type ThinkingLevel } from "@mariozechner/pi-agent-core";
 import type { Message, Model } from "@mariozechner/pi-ai";
 import { getAgentDir, getDocsPath } from "../config.js";
+import { createInlandEmpireAdvisor } from "./advisors/inland-empire.js";
 import { AgentSession } from "./agent-session.js";
 import { AuthStorage } from "./auth-storage.js";
 import { DEFAULT_THINKING_LEVEL } from "./defaults.js";
@@ -26,10 +27,6 @@ import {
 	createLsTool,
 	createReadOnlyTools,
 	createReadTool,
-	createTaskCreateTool,
-	createTaskGetTool,
-	createTaskListTool,
-	createTaskUpdateTool,
 	createWriteTool,
 	editTool,
 	findTool,
@@ -39,10 +36,6 @@ import {
 	readTool,
 	type Tool,
 	type ToolName,
-	taskCreateTool,
-	taskGetTool,
-	taskListTool,
-	taskUpdateTool,
 	writeTool,
 } from "./tools/index.js";
 
@@ -117,10 +110,6 @@ export {
 	grepTool,
 	findTool,
 	lsTool,
-	taskCreateTool,
-	taskGetTool,
-	taskListTool,
-	taskUpdateTool,
 	codingTools,
 	readOnlyTools,
 	allTools as allBuiltInTools,
@@ -134,10 +123,6 @@ export {
 	createGrepTool,
 	createFindTool,
 	createLsTool,
-	createTaskCreateTool,
-	createTaskGetTool,
-	createTaskListTool,
-	createTaskUpdateTool,
 };
 
 // Helper Functions
@@ -257,18 +242,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		thinkingLevel = "off";
 	}
 
-	const defaultActiveToolNames: ToolName[] = [
-		"read",
-		"bash",
-		"edit",
-		"write",
-		"browser",
-		"taskCreate",
-		"taskGet",
-		"taskList",
-		"taskUpdate",
-		"taskReset",
-	];
+	const defaultActiveToolNames: ToolName[] = ["read", "bash", "edit", "write", "browser"];
 	const initialActiveToolNames: ToolName[] = options.tools
 		? options.tools.map((t) => t.name).filter((n): n is ToolName => n in allTools)
 		: defaultActiveToolNames;
@@ -315,12 +289,12 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 	const extensionRunnerRef: { current?: ExtensionRunner } = {};
 
 	const defaultAdvisors: AdvisorConfig[] = [];
-	// if (model) {
-	// 	defaultAdvisors.push({
-	// 		...createInlandEmpireAdvisor(model),
-	// 		getApiKey: async (provider) => modelRegistry.getApiKeyForProvider(provider),
-	// 	});
-	// }
+	if (model) {
+		defaultAdvisors.push({
+			...createInlandEmpireAdvisor(model, 1),
+			getApiKey: async (provider) => modelRegistry.getApiKeyForProvider(provider),
+		});
+	}
 
 	agent = new Agent({
 		initialState: {
