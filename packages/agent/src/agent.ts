@@ -14,6 +14,7 @@ import {
 } from "@mariozechner/pi-ai";
 import { agentLoop, agentLoopContinue } from "./agent-loop.js";
 import type {
+	AdvisorConfig,
 	AgentContext,
 	AgentEvent,
 	AgentLoopConfig,
@@ -85,6 +86,13 @@ export interface AgentOptions {
 	 * Default: 60000 (60 seconds). Set to 0 to disable the cap.
 	 */
 	maxRetryDelayMs?: number;
+
+	/**
+	 * Advisors that run after matching tool executions.
+	 * Each advisor is a sub-agent that reviews the context and injects
+	 * a feedback message before the next LLM call.
+	 */
+	advisors?: AdvisorConfig[];
 }
 
 export class Agent {
@@ -115,6 +123,7 @@ export class Agent {
 	private resolveRunningPrompt?: () => void;
 	private _thinkingBudgets?: ThinkingBudgets;
 	private _maxRetryDelayMs?: number;
+	private _advisors?: AdvisorConfig[];
 
 	constructor(opts: AgentOptions = {}) {
 		this._state = { ...this._state, ...opts.initialState };
@@ -127,6 +136,7 @@ export class Agent {
 		this.getApiKey = opts.getApiKey;
 		this._thinkingBudgets = opts.thinkingBudgets;
 		this._maxRetryDelayMs = opts.maxRetryDelayMs;
+		this._advisors = opts.advisors;
 	}
 
 	/**
@@ -171,6 +181,20 @@ export class Agent {
 	 */
 	set maxRetryDelayMs(value: number | undefined) {
 		this._maxRetryDelayMs = value;
+	}
+
+	/**
+	 * Get the current advisors configuration.
+	 */
+	get advisors(): AdvisorConfig[] | undefined {
+		return this._advisors;
+	}
+
+	/**
+	 * Set advisors that run after matching tool executions.
+	 */
+	set advisors(value: AdvisorConfig[] | undefined) {
+		this._advisors = value;
 	}
 
 	get state(): AgentState {
@@ -412,6 +436,7 @@ export class Agent {
 			convertToLlm: this.convertToLlm,
 			transformContext: this.transformContext,
 			getApiKey: this.getApiKey,
+			advisors: this._advisors,
 			getSteeringMessages: async () => {
 				if (skipInitialSteeringPoll) {
 					skipInitialSteeringPoll = false;
